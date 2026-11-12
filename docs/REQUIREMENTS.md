@@ -58,4 +58,19 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 - **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
 - **v1:** v0.5 plus mouse and keyboard input over the data channel.
 
+### v0.5 scope
+
+- Repo layout: `agent/` (C#), `client/` (React); `spikes/` kept for reference.
+- Client:
+  - Connect form for the agent address, pre-filled with the last used address (localStorage).
+  - Connection status: connecting, connected, failed (with the reason).
+  - Stream view scaled to fit the window, keeping aspect ratio.
+  - Fullscreen and Disconnect buttons.
+  - Stats overlay: resolution, fps, bitrate.
+- Agent:
+  - Listens on all interfaces on a default port (8080), overridable via command-line argument or `appsettings.json`.
+  - One viewer at a time: a new connection replaces the current viewer.
+  - Tears down the pipeline when the viewer disconnects (client `DELETE` on the session, WHEP-style) or the WebRTC connection fails.
+- Out of scope for v0.5: input, auth, HTTPS.
+
 <sub>Future: a separate auth + UDP proxy server so clients never learn the agent's IP.</sub>
