@@ -26,4 +26,28 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
   - While on HTTP, the client must also be served over HTTP (or `localhost`), because HTTPS pages block requests to HTTP addresses.
   - Known HTTP limitations: signaling can be tampered with on the network, and secure-context APIs (clipboard, Keyboard Lock) only work when the client runs on `localhost`.
 
+## Agent
+
+- Windows only for now; keep capture and input code isolated so other OSes can be added later.
+- C# (.NET 10) console app running in the logged-in user's session (not a Windows service).
+- GStreamer does capture, encoding and WebRTC; C# only wires it together.
+  - Bindings: `gstreamer-sharp`.
+  - Pipeline: `d3d11screencapturesrc ! d3d11convert ! mfh264enc ! h264parse ! rtph264pay ! webrtcbin`.
+  - Encoder: `mfh264enc` (uses the hardware encoder when available), `x264enc tune=zerolatency` as fallback.
+- Signaling: ASP.NET Core minimal API, `POST /offer` with CORS.
+  - The browser is the offerer (receive-only video + `input` data channel).
+  - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
+- Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into `SendInput` calls via P/Invoke.
+- Main risk: `gstreamer-sharp` maturity with `webrtcbin` on Windows. De-risk with a spike:
+  1. Verify capture + encode with `gst-launch-1.0` (official GStreamer MSVC build).
+  2. Build and run the same pipeline from a minimal C# app.
+  3. Complete one offer/answer exchange with the browser through `webrtcbin`.
+- Fallback if `webrtcbin` from C# is too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
+- Out of scope for now: Windows service, login screen/UAC capture, audio, multiple monitors.
+
+## Milestones
+
+- **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
+- **v1:** v0.5 plus mouse and keyboard input over the data channel.
+
 <sub>Future: a separate auth + UDP proxy server so clients never learn the agent's IP.</sub>
