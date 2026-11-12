@@ -14,7 +14,7 @@ export function StatsOverlay({ peerConnection }: { peerConnection: RTCPeerConnec
   useEffect(() => {
     let previous: { bytes: number; timestamp: number } | undefined
 
-    const interval = setInterval(async () => {
+    const poll = async () => {
       const report = await peerConnection.getStats()
       report.forEach((entry) => {
         if (entry.type !== "inbound-rtp" || entry.kind !== "video") return
@@ -30,7 +30,11 @@ export function StatsOverlay({ peerConnection }: { peerConnection: RTCPeerConnec
           bitrateKbps,
         })
       })
-    }, 1000)
+    }
+
+    // Poll right away so the overlay appears without waiting for the first tick.
+    poll()
+    const interval = setInterval(poll, 1000)
 
     return () => clearInterval(interval)
   }, [peerConnection])
