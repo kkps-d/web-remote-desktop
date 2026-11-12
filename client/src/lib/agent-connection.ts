@@ -7,8 +7,27 @@ export interface AgentConnection {
   peerConnection: RTCPeerConnection
   /** Receives the remote desktop video track once media starts flowing. */
   stream: MediaStream
+  /** Fetches the source resolution and current stream settings. */
+  getStreamInfo: () => Promise<StreamInfo>
+  /** Changes stream settings while streaming; omitted fields keep their value. */
+  updateStreamSettings: (update: Partial<StreamSettings>) => Promise<StreamInfo>
   /** Closes the connection and tells the agent to stop streaming. */
   close: () => void
+}
+
+export interface Resolution {
+  width: number
+  height: number
+}
+
+export interface StreamSettings extends Resolution {
+  framerate: number
+  bitrateKbps: number
+}
+
+export interface StreamInfo {
+  source: Resolution
+  settings: StreamSettings
 }
 
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */
@@ -53,9 +72,25 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
     await peerConnection.setRemoteDescription({ type: "answer", sdp: answer })
     signal.throwIfAborted()
 
+    // Concurrent requests can reach the agent and resolve out of order, so an older reply could
+    // overwrite a newer setting. Sending one at a time keeps both in the order the user chose.
+    let lastRequest: Promise<unknown> = Promise.resolve()
+    const queuedSessionRequest = (init: RequestInit) => {
+      const request = lastRequest.then(() => sessionRequest(sessionUrl, init))
+      lastRequest = request.catch(() => {})
+      return request
+    }
+
     return {
       peerConnection,
       stream,
+      getStreamInfo: () => queuedSessionRequest({ method: "GET" }),
+      updateStreamSettings: (update) =>
+        queuedSessionRequest({
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(update),
+        }),
       close: () => {
         peerConnection.close()
         endSession(sessionUrl)
@@ -67,6 +102,19 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
     endSession(sessionUrl)
     throw error
   }
+}
+
+async function sessionRequest(sessionUrl: URL | null, init: RequestInit): Promise<StreamInfo> {
+  if (!sessionUrl) throw new Error("The agent didn't return a session URL.")
+  let response: Response
+  try {
+    response = await fetch(sessionUrl, init)
+  } catch {
+    throw new Error("Couldn't reach the agent.")
+  }
+  if (response.status === 404) throw new Error("The stream session has ended.")
+  if (!response.ok) throw new Error((await response.text()) || `The agent responded with ${response.status}.`)
+  return response.json()
 }
 
 function endSession(sessionUrl: URL | null) {

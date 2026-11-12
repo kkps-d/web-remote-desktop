@@ -44,4 +44,21 @@ app.MapPost("/offer", async (HttpRequest request, HttpResponse response, ViewerS
 app.MapDelete("/sessions/{id}", (string id, ViewerSessions sessions) =>
     sessions.Stop(id) ? Results.NoContent() : Results.NotFound());
 
+// The source resolution and current stream settings (resolution, frame rate, bitrate).
+app.MapGet("/sessions/{id}", (string id, ViewerSessions sessions) =>
+    sessions.GetInfo(id) is { } info ? Results.Ok(info) : Results.NotFound());
+
+// Changes stream settings while streaming. Omitted fields keep their current value.
+app.MapPatch("/sessions/{id}", (string id, StreamSettingsUpdate update, ViewerSessions sessions) =>
+{
+    try
+    {
+        return sessions.Update(id, update) is { } info ? Results.Ok(info) : Results.NotFound();
+    }
+    catch (InvalidSettingsException ex)
+    {
+        return Results.Text(ex.Message, statusCode: 400);
+    }
+});
+
 app.Run();

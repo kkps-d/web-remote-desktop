@@ -73,4 +73,10 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
   - Tears down the pipeline when the viewer disconnects (client `DELETE` on the session, WHEP-style) or the WebRTC connection fails.
 - Out of scope for v0.5: input, auth, HTTPS.
 
+### Stream settings
+
+- Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate and bitrate; the stats overlay shows source and stream resolution.
+- Agent: `GET /sessions/{id}` returns the source resolution and current settings; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
+- Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and `mfh264enc` picks up a new `bitrate` on the next frame.
+
 <sub>Future: a separate auth + UDP proxy server so clients never learn the agent's IP.</sub>

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
 
+import type { Resolution } from "@/lib/agent-connection"
+
 interface VideoStats {
   width: number
   height: number
@@ -8,7 +10,7 @@ interface VideoStats {
 }
 
 /** Polls WebRTC stats once a second and shows resolution, frame rate and bitrate. */
-export function StatsOverlay({ peerConnection }: { peerConnection: RTCPeerConnection }) {
+export function StatsOverlay({ peerConnection, source }: { peerConnection: RTCPeerConnection; source?: Resolution }) {
   const [stats, setStats] = useState<VideoStats>()
 
   useEffect(() => {
@@ -43,7 +45,15 @@ export function StatsOverlay({ peerConnection }: { peerConnection: RTCPeerConnec
 
   return (
     <dl className="pointer-events-none absolute top-2 left-2 grid grid-cols-[auto_auto] gap-x-3 rounded-md bg-black/70 px-3 py-2 font-mono text-xs text-white">
-      <dt className="text-white/60">Resolution</dt>
+      {source && (
+        <>
+          <dt className="text-white/60">Source</dt>
+          <dd>
+            {source.width}×{source.height}
+          </dd>
+        </>
+      )}
+      <dt className="text-white/60">Stream</dt>
       <dd>
         {stats.width}×{stats.height}
       </dd>

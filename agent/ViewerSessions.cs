@@ -54,6 +54,26 @@ sealed class ViewerSessions(ILogger<ViewerSessions> logger) : IDisposable
         }
     }
 
+    /// <summary>Returns the session's stream info, or null if it isn't the current session.</summary>
+    public StreamInfo? GetInfo(string id)
+    {
+        lock (gate) return current?.Id == id ? Info(current) : null;
+    }
+
+    /// <summary>Changes the session's stream settings. Returns null if it isn't the current session.</summary>
+    public StreamInfo? Update(string id, StreamSettingsUpdate update)
+    {
+        // Holding the gate keeps the session from being disposed mid-update.
+        lock (gate)
+        {
+            if (current?.Id != id) return null;
+            current.Update(update);
+            return Info(current);
+        }
+    }
+
+    static StreamInfo Info(StreamSession session) => new(session.SourceResolution, session.Settings);
+
     void StopCurrent()
     {
         current?.Dispose();

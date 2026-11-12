@@ -9,6 +9,19 @@ namespace Agent;
 /// <summary>Thrown when the browser's offer can't be answered, e.g. it has no usable codec.</summary>
 sealed class InvalidOfferException(string message) : Exception(message);
 
+/// <summary>Thrown when requested stream settings are out of range.</summary>
+sealed class InvalidSettingsException(string message) : Exception(message);
+
+record Resolution(int Width, int Height);
+
+record StreamSettings(int Width, int Height, int Framerate, int BitrateKbps);
+
+/// <summary>A partial settings change; null fields keep their current value.</summary>
+record StreamSettingsUpdate(int? Width, int? Height, int? Framerate, int? BitrateKbps);
+
+/// <summary>What the client sees about a session's stream.</summary>
+record StreamInfo(Resolution Source, StreamSettings Settings);
+
 /// <summary>
 /// One viewer's stream: a capture → encode → webrtcbin pipeline that answers the viewer's
 /// SDP offer and runs until it is disposed or the connection ends.
@@ -20,6 +33,13 @@ sealed class StreamSession : IDisposable
     static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(30);
     // How long a "disconnected" connection may take to recover before the session ends.
     static readonly TimeSpan DisconnectGrace = TimeSpan.FromSeconds(10);
+
+    const int DefaultFramerate = 30;
+    const int MaxFramerate = 120;
+    const int DefaultBitrateKbps = 8000;
+    const int MinBitrateKbps = 500;
+    const int MaxBitrateKbps = 50_000;
+    const int MinDimension = 64;
 
     readonly Pipeline pipeline;
     readonly Element webrtc;
@@ -56,6 +76,9 @@ sealed class StreamSession : IDisposable
             new Thread(session.WatchBus) { IsBackground = true, Name = $"bus {session.Id}" }.Start();
             session.pipeline.SetState(State.Playing);
             session.AnswerSdp = session.Answer(offerSdp);
+            // Answer waits for the first frame, so the capture caps are known by now.
+            var source = session.SourceResolution;
+            session.Settings = session.Settings with { Width = source.Width, Height = source.Height };
             session.connectDeadline = DateTime.UtcNow + ConnectTimeout;
             session.connectionMonitor.Change(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
             return session;
@@ -72,15 +95,76 @@ sealed class StreamSession : IDisposable
     // level than browsers offer; they accept it (level-asymmetry-allowed=1), so capssetter just
     // relabels the caps.
     static string PipelineDescription(H264Codec codec) =>
-        "d3d11screencapturesrc show-cursor=true ! d3d11convert ! " +
-        "video/x-raw(memory:D3D11Memory),format=NV12 ! " +
-        "mfh264enc low-latency=true bitrate=8000 gop-size=60 ! h264parse ! " +
+        "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! " +
+        $"capsfilter name=output caps={OutputCaps(null, DefaultFramerate)} ! " +
+        $"mfh264enc name=encoder low-latency=true bitrate={DefaultBitrateKbps} gop-size=60 ! h264parse ! " +
         "video/x-h264,profile=constrained-baseline ! " +
         $"rtph264pay pt={codec.PayloadType} config-interval=-1 aggregate-mode=zero-latency ! " +
         $"capssetter caps=\"application/x-rtp,profile-level-id=(string){codec.ProfileLevelId}\" ! " +
         "webrtcbin name=webrtc bundle-policy=max-bundle";
 
+    // d3d11convert scales to the output size, and the capture source captures at the output frame
+    // rate. Changing these caps while playing renegotiates the pipeline; the encoder restarts with
+    // a keyframe and browsers decode the new size without SDP renegotiation.
+    static string OutputCaps(Resolution? size, int framerate) =>
+        "video/x-raw(memory:D3D11Memory),format=NV12," +
+        (size is null ? "" : $"width={size.Width},height={size.Height},") +
+        $"framerate={framerate}/1";
+
     public record H264Codec(int PayloadType, string ProfileLevelId);
+
+    /// <summary>The stream's current settings.</summary>
+    public StreamSettings Settings { get; private set; } = new(0, 0, DefaultFramerate, DefaultBitrateKbps);
+
+    /// <summary>The captured desktop's resolution.</summary>
+    public Resolution SourceResolution
+    {
+        get
+        {
+            var caps = pipeline.GetByName("capture").GetStaticPad("src").CurrentCaps;
+            var structure = caps.GetStructure(0);
+            structure.GetInt("width", out var width);
+            structure.GetInt("height", out var height);
+            return new Resolution(width, height);
+        }
+    }
+
+    /// <summary>Applies the given settings while streaming. Null fields keep their current value.</summary>
+    public void Update(StreamSettingsUpdate update)
+    {
+        if ((update.Width is null) != (update.Height is null))
+            throw new InvalidSettingsException("Width and height must be set together.");
+
+        var source = SourceResolution;
+        var next = new StreamSettings(
+            update.Width ?? Settings.Width,
+            update.Height ?? Settings.Height,
+            update.Framerate ?? Settings.Framerate,
+            update.BitrateKbps ?? Settings.BitrateKbps);
+
+        // The encoder needs even dimensions; upscaling would only cost bandwidth.
+        if (next.Width < MinDimension || next.Height < MinDimension || next.Width > source.Width ||
+            next.Height > source.Height || next.Width % 2 != 0 || next.Height % 2 != 0)
+            throw new InvalidSettingsException(
+                $"Resolution must be even, at least {MinDimension} px and no larger than {source.Width}×{source.Height}.");
+        if (next.Framerate is < 1 or > MaxFramerate)
+            throw new InvalidSettingsException($"Frame rate must be 1–{MaxFramerate} fps.");
+        if (next.BitrateKbps is < MinBitrateKbps or > MaxBitrateKbps)
+            throw new InvalidSettingsException($"Bitrate must be {MinBitrateKbps}–{MaxBitrateKbps} kbps.");
+        if (next == Settings) return;
+
+        if (next.Width != Settings.Width || next.Height != Settings.Height || next.Framerate != Settings.Framerate)
+        {
+            var size = new Resolution(next.Width, next.Height);
+            pipeline.GetByName("output")["caps"] = Caps.FromString(OutputCaps(size, next.Framerate));
+        }
+        // mfh264enc picks up a new bitrate on its next frame.
+        if (next.BitrateKbps != Settings.BitrateKbps)
+            pipeline.GetByName("encoder")["bitrate"] = (uint)next.BitrateKbps;
+
+        Settings = next;
+        logger.LogInformation("Session {Id} settings changed to {Settings}", Id, next);
+    }
 
     /// <summary>Finds the browser's constrained-baseline, packetization-mode=1 H.264 codec in the offer.</summary>
     public static H264Codec FindH264Codec(string offerSdp)
@@ -182,6 +266,15 @@ sealed class StreamSession : IDisposable
             // The message structure holds both the error text and the debug details.
             if (message.Type == MessageType.Warning)
             {
+                // A frame rate change makes d3d11convert fail to renegotiate with the old input caps
+                // until the capture source renegotiates upstream. It's expected and recovers at once.
+                var debug = message.Structure.GetString("debug") ?? "";
+                if (debug.Contains("gst_base_transform_reconfigure") && debug.Contains("not negotiated"))
+                {
+                    logger.LogDebug("Session {Id} renegotiating after a settings change", Id);
+                    continue;
+                }
+
                 logger.LogWarning("Session {Id} pipeline warning from {Source}: {Details}", Id, message.Src?.Name, message.Structure);
                 continue;
             }

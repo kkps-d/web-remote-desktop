@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Activity, LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
 
 import { StatsOverlay } from "@/components/stats-overlay"
+import { StreamSettingsPicker } from "@/components/stream-settings-picker"
+import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -22,6 +24,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   const videoRef = useRef<HTMLVideoElement>(null)
   const [showStats, setShowStats] = useState(true)
   const isFullscreen = useIsFullscreen()
+  const streamSettings = useStreamSettings(connection)
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = connection?.stream ?? null
@@ -39,6 +42,12 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         <span className="min-w-0 truncate text-sm text-muted-foreground">{address}</span>
 
         <div className="ml-auto flex items-center gap-1">
+          <StreamSettingsPicker
+            info={streamSettings.info}
+            error={streamSettings.error}
+            disabled={!connected}
+            onChange={streamSettings.update}
+          />
           <ToolbarButton
             label={showStats ? "Hide stats" : "Show stats"}
             onClick={() => setShowStats((shown) => !shown)}
@@ -75,7 +84,9 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             {status === "reconnecting" ? "Connection lost. Reconnecting…" : `Connecting to ${address}…`}
           </div>
         )}
-        {showStats && connected && connection && <StatsOverlay peerConnection={connection.peerConnection} />}
+        {showStats && connected && connection && (
+          <StatsOverlay peerConnection={connection.peerConnection} source={streamSettings.info?.source} />
+        )}
       </div>
     </div>
   )
