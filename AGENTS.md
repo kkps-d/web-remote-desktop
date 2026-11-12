@@ -30,3 +30,7 @@ These instructions apply throughout this repository. Follow [DESIGN_GUIDELINES.m
 
 - Use the project's existing formatting, linting, type checks, and tests when relevant to the change.
 - For UI changes, check responsive behavior, accessibility, and applicable interaction states.
+
+## Live tests
+
+- You may do live tests if needed without prompting the user
