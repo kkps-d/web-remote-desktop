@@ -31,18 +31,26 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 - Windows only for now; keep capture and input code isolated so other OSes can be added later.
 - C# (.NET 10) console app running in the logged-in user's session (not a Windows service).
 - GStreamer does capture, encoding and WebRTC; C# only wires it together.
-  - Bindings: `gstreamer-sharp`.
-  - Pipeline: `d3d11screencapturesrc ! d3d11convert ! mfh264enc ! h264parse ! rtph264pay ! webrtcbin`.
+  - Bindings: `gstreamer-sharp-netcore` 0.0.8 (the only `gstreamer-sharp` package on NuGet).
+  - Pipeline: `d3d11screencapturesrc ! d3d11convert ! mfh264enc ! h264parse ! rtph264pay ! capssetter ! webrtcbin`.
   - Encoder: `mfh264enc` (uses the hardware encoder when available), `x264enc tune=zerolatency` as fallback.
 - Signaling: ASP.NET Core minimal API, `POST /offer` with CORS.
   - The browser is the offerer (receive-only video + `input` data channel).
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
 - Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into `SendInput` calls via P/Invoke.
-- Main risk: `gstreamer-sharp` maturity with `webrtcbin` on Windows. De-risk with a spike:
-  1. Verify capture + encode with `gst-launch-1.0` (official GStreamer MSVC build).
-  2. Build and run the same pipeline from a minimal C# app.
-  3. Complete one offer/answer exchange with the browser through `webrtcbin`.
-- Fallback if `webrtcbin` from C# is too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
+- Fallback if `webrtcbin` from C# becomes too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
+
+### Spike results (`spikes/GstSpike`)
+
+The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28 (official MSVC build, "Complete" install). Workarounds needed:
+
+- The per-user GStreamer install isn't on `PATH`; the agent prepends its `bin` folder at startup.
+- GLibSharp looks for MinGW DLL names (`libgobject-2.0-0.dll`); the agent pre-fills its private handle cache with the MSVC DLLs.
+- The bindings can't pass `null` signal arguments (use an empty `Structure`), and reading `local-description` frees the SDP too early (read it via `g_object_get` P/Invoke).
+- `webrtcbin` as answerer matches our stream to the offer by exact RTP caps:
+  - wait for caps on its sink pad before setting the remote description;
+  - use the browser's payload type for constrained-baseline H.264;
+  - relabel `profile-level-id` to the browser's via `capssetter` (desktop resolutions need a higher level; browsers allow it with `level-asymmetry-allowed=1`).
 - Out of scope for now: Windows service, login screen/UAC capture, audio, multiple monitors.
 
 ## Milestones
