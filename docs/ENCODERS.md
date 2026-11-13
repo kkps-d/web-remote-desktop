@@ -44,9 +44,10 @@ The Microsoft software encoder is the `mfh264*enc` whose description says "H264 
 - Play a video or scroll a page during the run; a static screen is trivially cheap to encode.
 - Defaults are 1080p60 and 600 frames. Change with `-Width`, `-Height`, `-Fps`, `-Frames`.
 - A pick passes if p95 stays well under the frame time (16.7 ms at 60 fps) and overall fps stays near the target.
+- A warning that only some frames were timed means the encoder dropped or reordered frames (B-frames). Its numbers are unreliable, so turn off B-frames and lookahead.
 - If execution policy blocks the script: `powershell -ExecutionPolicy Bypass -File .\scripts\test-encoder.ps1 ...`
 
-Viewer-side decoding (smart TVs) can only be checked through the agent, which currently uses `mfh264enc`. To try another encoder there, change the encoder in `PipelineDescription` in `agent/StreamSession.cs`. `d3d12*enc` also needs the D3D12 capture elements there.
+Viewer-side decoding (smart TVs) can only be checked through the agent, which currently uses `mfh264enc`. To try another encoder there, change the encoder in `PipelineDescription` in `agent/StreamSession.cs`, keeping `name=encoder` and `bitrate`, and replacing `gop-size` with the encoder's own keyframe interval property (`key-int-max` for `x264enc`). CPU encoders need `d3d11download !` between the `output` capsfilter and the encoder, because they only accept system memory. `d3d12*enc` also needs the D3D12 capture elements there.
 
 ## Results
 

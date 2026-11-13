@@ -56,5 +56,13 @@ if ($times.Count -eq 0) {
 
 $mean = ($times | Measure-Object -Average).Average
 $p95 = $times[[int][math]::Floor($times.Count * 0.95) - 1]
+# Throughput counts the timed encoder outputs, so dropped frames lower it.
 "{0}`n  {1}x{2}@{3}  mean {4:N2} ms  p95 {5:N2} ms  max {6:N2} ms  overall {7:N0} fps (incl. startup)" -f `
-    $Encoder, $Width, $Height, $Fps, $mean, $p95, $times[-1], ($Frames / $seconds)
+    $Encoder, $Width, $Height, $Fps, $mean, $p95, $times[-1], ($times.Count / $seconds)
+
+# The tracer pairs each output with the latest input, so dropped or reordered frames
+# (B-frames) lose samples, and the slowest frames are the ones that go missing.
+if ($times.Count -lt $Frames) {
+    Write-Host ("  Only {0} of {1} frames timed; the encoder dropped or reordered frames, so the numbers are unreliable." -f `
+        $times.Count, $Frames) -ForegroundColor Yellow
+}
