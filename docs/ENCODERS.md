@@ -17,8 +17,7 @@ Notes:
 
 - `x264enc` is GPL. If that blocks distribution, `openh264enc` (BSD) is the alternative, but it was about 10× slower here.
 - `d3d12h264enc` needs a recent GPU and driver with D3D12 Video encode support.
-- Once NVENC has run, running any Media Foundation encoder (NVIDIA's or Microsoft's software one) in the same process makes every later NVENC session fail with `NV_ENC_ERR_INVALID_VERSION` until the process restarts. Reproduced with plain GStreamer 1.28.8 and driver 610.88, so the agent turns both Media Foundation picks off while NVENC is available. They remain the fallback when NVENC isn't.
-- AMF has only been tested on a Radeon iGPU, where it took ~17 ms per frame. A discrete card should be faster; this is the main thing to confirm.
+- See [known encoder issues](KNOWN_ISSUES.md#encoders) for the NVENC and Media Foundation conflict and the AMF performance limitation.
 - AV1 would give better quality per bit but needs NVIDIA Ada (RTX 40) or AMD RDNA3 or newer, and many TVs can't decode it in hardware.
 
 ## Element names

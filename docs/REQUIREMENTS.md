@@ -23,8 +23,7 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
   - The client is served from a different origin, so the agent must handle CORS (including the preflight for `application/sdp`).
 - The user enters the agent's address manually in the client.
 - Plain HTTP first; upgrade to HTTPS later.
-  - While on HTTP, the client must also be served over HTTP (or `localhost`), because HTTPS pages block requests to HTTP addresses.
-  - Known HTTP limitations: signaling can be tampered with on the network, and secure-context APIs (clipboard, Keyboard Lock) only work when the client runs on `localhost`.
+  - See [plain HTTP limitations](KNOWN_ISSUES.md#plain-http).
 
 ## Agent
 
@@ -42,16 +41,9 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 
 ### Spike results (`spikes/GstSpike`)
 
-The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28 (official MSVC build, "Complete" install). Workarounds needed:
+The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28 (official MSVC build, "Complete" install). See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
-- The per-user GStreamer install isn't on `PATH`; the agent prepends its `bin` folder at startup.
-- GLibSharp looks for MinGW DLL names (`libgobject-2.0-0.dll`); the agent pre-fills its private handle cache with the MSVC DLLs.
-- The bindings can't pass `null` signal arguments (use an empty `Structure`), and reading `local-description` frees the SDP too early (read it via `g_object_get` P/Invoke).
-- `webrtcbin` as answerer matches our stream to the offer by exact RTP caps:
-  - wait for caps on its sink pad before setting the remote description;
-  - use the browser's payload type for constrained-baseline H.264;
-  - relabel `profile-level-id` to the browser's via `capssetter` (desktop resolutions need a higher level; browsers allow it with `level-asymmetry-allowed=1`).
-- Out of scope for now: Windows service, login screen/UAC capture, audio, multiple monitors.
+Out of scope for now: Windows service, login screen/UAC capture, audio, multiple monitors.
 
 ## Milestones
 
@@ -81,7 +73,7 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 ### Stream settings
 
 - Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder; the stats overlay shows source and stream resolution.
-- Encoders the agent can't use are greyed out with the reason. GPU encoders count only on the GPU driving the captured display (found with the GStreamer device monitor); others would copy every frame between GPUs. Media Foundation encoders are off while NVENC is available, because running one breaks NVENC until the agent restarts (see [ENCODERS.md](ENCODERS.md)).
+- Encoders the agent can't use are greyed out with the reason. GPU encoders count only on the GPU driving the captured display (found with the GStreamer device monitor); others would copy every frame between GPUs. See [known encoder issues](KNOWN_ISSUES.md#encoders).
 - Each encoder's size limits come from its sink pad template (NVENC, AMF and D3D12: 4096 px at most). A resolution or encoder change outside them is rejected with a 400 before the pipeline changes. A display larger than the default encoder accepts starts scaled down to fit.
 - Agent: `GET /sessions/{id}` returns the source resolution, current settings and the encoder list; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
 - Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.

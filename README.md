@@ -6,6 +6,8 @@ The web client connects to the agent installed on a computer to remote desktop.
 
 See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the design. LAN/VPN only, plain HTTP, view only (v0.5).
 
+See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds.
+
 ## Running
 
 **Agent** (Windows): needs the [.NET 10 SDK](https://dotnet.microsoft.com/) and [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28+ (MSVC build, "Complete" install).
