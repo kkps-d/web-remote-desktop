@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { Resolution, StreamInfo, StreamSettings } from "@/lib/agent-connection"
 
-const FRAMERATES = [15, 30, 60]
+const FRAMERATES = [15, 30, 60, 120]
 const BITRATES_KBPS = [2000, 4000, 8000, 15000, 25000]
 // Common heights offered below the source's own resolution.
 const SCALED_HEIGHTS = [2160, 1440, 1080, 720, 480]
