@@ -43,6 +43,7 @@ sealed class StreamSession : IDisposable
 
     readonly Pipeline pipeline;
     readonly Element webrtc;
+    readonly EncodeTiming encodeTiming;
     readonly ILogger logger;
     readonly Timer connectionMonitor;
     DateTime? connectDeadline;
@@ -52,6 +53,7 @@ sealed class StreamSession : IDisposable
 
     public string Id { get; } = Guid.NewGuid().ToString("N");
     public string AnswerSdp { get; private set; } = "";
+    public EncodingStats EncodingStats => encodeTiming.Snapshot();
 
     /// <summary>Why the session ended, or null while it runs. Set before <see cref="Ended"/> is raised.</summary>
     public string? EndReason => Volatile.Read(ref endReason);
@@ -64,6 +66,7 @@ sealed class StreamSession : IDisposable
         this.logger = logger;
         pipeline = (Pipeline)Parse.Launch(PipelineDescription(codec));
         webrtc = pipeline.GetByName("webrtc");
+        encodeTiming = new EncodeTiming(pipeline.GetByName("encoder"));
         connectionMonitor = new Timer(_ => CheckConnection());
     }
 

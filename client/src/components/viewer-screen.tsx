@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { Activity, LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
+import { LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
 
 import { StatsOverlay } from "@/components/stats-overlay"
+import { StatsMenu } from "@/components/stats-menu"
 import { StreamSettingsPicker } from "@/components/stream-settings-picker"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { Badge } from "@/components/ui/badge"
@@ -22,7 +23,8 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   const connected = status === "connected"
   const stageRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [showStats, setShowStats] = useState(true)
+  const [showBasicStats, setShowBasicStats] = useState(true)
+  const [showAdvancedStats, setShowAdvancedStats] = useState(true)
   const isFullscreen = useIsFullscreen()
   const streamSettings = useStreamSettings(connection)
 
@@ -48,13 +50,12 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             disabled={!connected}
             onChange={streamSettings.update}
           />
-          <ToolbarButton
-            label={showStats ? "Hide stats" : "Show stats"}
-            onClick={() => setShowStats((shown) => !shown)}
-            pressed={showStats}
-          >
-            <Activity />
-          </ToolbarButton>
+          <StatsMenu
+            basic={showBasicStats}
+            advanced={showAdvancedStats}
+            onBasicChange={setShowBasicStats}
+            onAdvancedChange={setShowAdvancedStats}
+          />
           <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
@@ -84,8 +85,13 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             {status === "reconnecting" ? "Connection lost. Reconnecting…" : `Connecting to ${address}…`}
           </div>
         )}
-        {showStats && connected && connection && (
-          <StatsOverlay peerConnection={connection.peerConnection} source={streamSettings.info?.source} />
+        {(showBasicStats || showAdvancedStats) && connected && connection && (
+          <StatsOverlay
+            connection={connection}
+            source={streamSettings.info?.source}
+            basic={showBasicStats}
+            advanced={showAdvancedStats}
+          />
         )}
       </div>
     </div>
@@ -95,18 +101,16 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
 function ToolbarButton({
   label,
   onClick,
-  pressed,
   children,
 }: {
   label: string
   onClick: () => void
-  pressed?: boolean
   children: ReactNode
 }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Button variant="ghost" size="icon" aria-label={label} aria-pressed={pressed} onClick={onClick} />}
+        render={<Button variant="ghost" size="icon" aria-label={label} onClick={onClick} />}
       >
         {children}
       </TooltipTrigger>

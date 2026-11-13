@@ -5,6 +5,20 @@ namespace Agent;
 /// <summary>Direct native calls for things the gstreamer-sharp bindings get wrong.</summary>
 static class Native
 {
+    [DllImport("gstreamer-1.0-0.dll")]
+    static extern void gst_event_parse_segment(IntPtr ev, out IntPtr segment);
+
+    [DllImport("gstreamer-1.0-0.dll")]
+    static extern ulong gst_segment_to_running_time(IntPtr segment, Gst.Format format, ulong position);
+
+    // The old bindings marshal GstSegment with the wrong layout for current GStreamer.
+    public static ulong GetRunningTime(Gst.Event segmentEvent, ulong pts)
+    {
+        if (pts == ulong.MaxValue) return ulong.MaxValue;
+        gst_event_parse_segment(segmentEvent.Handle, out var segment);
+        return gst_segment_to_running_time(segment, Gst.Format.Time, pts);
+    }
+
     [DllImport("gobject-2.0-0.dll")]
     static extern void g_object_get(IntPtr obj, string property, out IntPtr value, IntPtr terminator);
 

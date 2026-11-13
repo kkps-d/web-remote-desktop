@@ -9,6 +9,7 @@ export interface AgentConnection {
   stream: MediaStream
   /** Fetches the source resolution and current stream settings. */
   getStreamInfo: () => Promise<StreamInfo>
+  getEncodingStats: (signal?: AbortSignal) => Promise<EncodingStats>
   /** Changes stream settings while streaming; omitted fields keep their value. */
   updateStreamSettings: (update: Partial<StreamSettings>) => Promise<StreamInfo>
   /** Closes the connection and tells the agent to stop streaming. */
@@ -18,6 +19,11 @@ export interface AgentConnection {
 export interface Resolution {
   width: number
   height: number
+}
+
+export interface EncodingStats {
+  totalEncodeTimeMs: number
+  framesEncoded: number
 }
 
 export interface StreamSettings extends Resolution {
@@ -85,6 +91,8 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
       peerConnection,
       stream,
       getStreamInfo: () => queuedSessionRequest({ method: "GET" }),
+      getEncodingStats: (signal) =>
+        sessionRequest<EncodingStats>(sessionUrl ? new URL(`${sessionUrl.href}/stats`) : null, { signal }),
       updateStreamSettings: (update) =>
         queuedSessionRequest({
           method: "PATCH",
@@ -104,7 +112,7 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
   }
 }
 
-async function sessionRequest(sessionUrl: URL | null, init: RequestInit): Promise<StreamInfo> {
+async function sessionRequest<T = StreamInfo>(sessionUrl: URL | null, init: RequestInit): Promise<T> {
   if (!sessionUrl) throw new Error("The agent didn't return a session URL.")
   let response: Response
   try {

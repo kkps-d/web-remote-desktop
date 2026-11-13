@@ -66,7 +66,11 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
   - Connection status: connecting, connected, failed (with the reason).
   - Stream view scaled to fit the window, keeping aspect ratio.
   - Fullscreen and Disconnect buttons.
-  - Stats overlay: resolution, fps, bitrate.
+  - Stats dropdown independently toggles Basic and Advanced overlay sections, separated by a subtle divider.
+    - Help opens a dialog explaining each statistic and its calculation.
+    - Basic: stream resolution, bitrate, framerate, network RTT.
+    - Advanced: source resolution, encode/decode time, packet loss, jitter, jitter buffer delay, dropped frames, freezes, codec, decoder.
+    - Values include units; unavailable metrics show `—`. Rates and timing averages use recent samples; dropped frames and freezes are session counters.
 - Agent:
   - Listens on all interfaces on a default port (8080), overridable via command-line argument or `appsettings.json`.
   - One viewer at a time: a new connection replaces the current viewer.
@@ -77,6 +81,7 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 
 - Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate and bitrate; the stats overlay shows source and stream resolution.
 - Agent: `GET /sessions/{id}` returns the source resolution and current settings; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
+- Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.
 - Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and `mfh264enc` picks up a new `bitrate` on the next frame.
 
 <sub>Future: a separate auth + UDP proxy server so clients never learn the agent's IP.</sub>

@@ -48,6 +48,9 @@ app.MapDelete("/sessions/{id}", (string id, ViewerSessions sessions) =>
 app.MapGet("/sessions/{id}", (string id, ViewerSessions sessions) =>
     sessions.GetInfo(id) is { } info ? Results.Ok(info) : Results.NotFound());
 
+app.MapGet("/sessions/{id}/stats", (string id, ViewerSessions sessions) =>
+    sessions.GetStats(id) is { } stats ? Results.Ok(stats) : Results.NotFound());
+
 // Changes stream settings while streaming. Omitted fields keep their current value.
 app.MapPatch("/sessions/{id}", (string id, StreamSettingsUpdate update, ViewerSessions sessions) =>
 {

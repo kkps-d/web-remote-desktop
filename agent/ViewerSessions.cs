@@ -60,6 +60,11 @@ sealed class ViewerSessions(ILogger<ViewerSessions> logger) : IDisposable
         lock (gate) return current?.Id == id ? Info(current) : null;
     }
 
+    public EncodingStats? GetStats(string id)
+    {
+        lock (gate) return current?.Id == id ? current.EncodingStats : null;
+    }
+
     /// <summary>Changes the session's stream settings. Returns null if it isn't the current session.</summary>
     public StreamInfo? Update(string id, StreamSettingsUpdate update)
     {
