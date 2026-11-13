@@ -57,6 +57,7 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 
 - **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
 - **v1:** v0.5 plus mouse and keyboard input over the data channel.
+- **v2.0:** reach agents over the internet through the orchprox.
 
 ### v0.5 scope
 
@@ -84,4 +85,14 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 - Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.
 - Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and `mfh264enc` picks up a new `bitrate` on the next frame.
 
-<sub>Future: a separate auth + UDP proxy server so clients never learn the agent's IP.</sub>
+### v2.0 scope: orchprox
+
+A server on a VPS with a public IP that coordinates the handshake and relays all traffic between clients and agents, so agents behind CGNAT are reachable and clients never learn an agent's IP. Feasibility checked, nothing built yet.
+
+- Control (HTTP signaling, settings, stats, end session): the agent opens a long-lived outbound connection (e.g. WebSocket) to the orchprox, configured manually on the agent. The orchprox forwards client requests for an agent down that connection. Custom code, but mostly request forwarding.
+- Video and input (WebRTC): relayed by a standard TURN server (e.g. coturn) on the same VPS, not by custom code. Both ends get the TURN server in their ICE config (`webrtcbin` on the agent); the client forces relay with `iceTransportPolicy: "relay"`. The existing one-request signaling stays the same.
+- Client: the address becomes orchprox + agent ID instead of an IP.
+- Security: agents register with a secret, clients log in, HTTPS on the orchprox (needs a domain), short-lived TURN credentials issued per session.
+- TURN over TLS on port 443 as a fallback for networks that block UDP.
+- Costs: every stream crosses the VPS twice (about 9 GB each way per hour at 20 Mbps), so check the VPS transfer limits. The extra hop adds latency; pick a VPS region close to the usual users and agents.
+- **TBD:** always relay (simple, predictable) or try a direct connection first to save VPS bandwidth. Direct often fails when both ends are behind CGNAT, so always relay is the starting point.
