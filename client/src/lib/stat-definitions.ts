@@ -41,7 +41,10 @@ export const advancedStats = [
     help: "Browser-counted playback freezes and their total duration for this stream. A freeze is a frame gap ≥ the larger of 3× the recent average gap or that average + 150 ms.",
   },
   { name: "Codec", help: "Video compression format, such as H264, read from the received stream’s negotiated codec." },
-  { name: "Decoder", help: "Name of the video decoder implementation reported by the browser, when available." },
+  {
+    name: "Decoder",
+    help: "Name of the video decoder implementation reported by the browser. Chromium-based browsers hide it unless the page is using a camera or microphone.",
+  },
 ] as const
 
 export type StatDefinition = (typeof basicStats)[number] | (typeof advancedStats)[number]

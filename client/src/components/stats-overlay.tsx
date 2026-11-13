@@ -69,7 +69,8 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
     Freezes: stats?.freezeCount === undefined ? "—"
       : `${formatValue(stats.freezeCount, "freezes", 0)} / ${formatValue(stats.freezeSeconds, "s")}`,
     Codec: stats?.codec ?? "—",
-    Decoder: stats?.decoder ?? "—",
+    // Chromium only exposes the decoder name while the page captures a camera or mic.
+    Decoder: stats?.decoder ?? (stats?.sample.video ? "Hidden by browser" : "—"),
   }
 
   return (
