@@ -9,12 +9,15 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenAnyIP(port));
 // The web client is hosted on a different origin, and needs the Location header to end its session.
 builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Location")));
+builder.Services.AddSingleton<EncoderCatalog>();
 builder.Services.AddSingleton<ViewerSessions>();
 
 GStreamerRuntime.Initialize();
 
 var app = builder.Build();
 app.UseCors();
+// Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
+app.Services.GetRequiredService<EncoderCatalog>();
 
 // WHEP-style signaling: POST an SDP offer, get the SDP answer and a session URL back.
 app.MapPost("/offer", async (HttpRequest request, HttpResponse response, ViewerSessions sessions, ILogger<Program> logger) =>
@@ -44,7 +47,8 @@ app.MapPost("/offer", async (HttpRequest request, HttpResponse response, ViewerS
 app.MapDelete("/sessions/{id}", (string id, ViewerSessions sessions) =>
     sessions.Stop(id) ? Results.NoContent() : Results.NotFound());
 
-// The source resolution and current stream settings (resolution, frame rate, bitrate).
+// The source resolution, current stream settings (resolution, frame rate, bitrate, encoder)
+// and the encoders this computer can use.
 app.MapGet("/sessions/{id}", (string id, ViewerSessions sessions) =>
     sessions.GetInfo(id) is { } info ? Results.Ok(info) : Results.NotFound());
 
@@ -61,6 +65,11 @@ app.MapPatch("/sessions/{id}", (string id, StreamSettingsUpdate update, ViewerSe
     catch (InvalidSettingsException ex)
     {
         return Results.Text(ex.Message, statusCode: 400);
+    }
+    catch (InvalidOperationException ex)
+    {
+        // An encoder that fails to start ends the session; tell the client why.
+        return Results.Text(ex.Message, statusCode: 500);
     }
 });
 

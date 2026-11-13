@@ -20,7 +20,7 @@ interface StreamSettingsPickerProps {
   onChange: (change: Partial<StreamSettings>) => void
 }
 
-/** Toolbar popover for picking the stream's resolution, frame rate and bitrate. */
+/** Toolbar popover for picking the stream's resolution, frame rate, bitrate and encoder. */
 export function StreamSettingsPicker({ info, error, disabled, onChange }: StreamSettingsPickerProps) {
   const label = "Stream settings"
 
@@ -70,6 +70,12 @@ function SettingsFields({ info, onChange }: { info: StreamInfo; onChange: Stream
   }))
   const framerates = FRAMERATES.map((fps) => ({ value: String(fps), label: `${fps} fps` }))
   const bitrates = BITRATES_KBPS.map((kbps) => ({ value: String(kbps), label: `${kbps / 1000} Mbps` }))
+  const encoders = info.encoders.map((encoder) => ({
+    value: encoder.id,
+    label: encoder.label,
+    disabled: !encoder.available,
+    description: encoder.available ? undefined : (encoder.unavailableReason ?? "Not available"),
+  }))
 
   return (
     <>
@@ -94,8 +100,22 @@ function SettingsFields({ info, onChange }: { info: StreamInfo; onChange: Stream
         value={String(settings.bitrateKbps)}
         onChange={(value) => onChange({ bitrateKbps: Number(value) })}
       />
+      <SettingField
+        label="Encoder"
+        items={encoders}
+        value={settings.encoder}
+        onChange={(encoder) => onChange({ encoder })}
+      />
     </>
   )
+}
+
+interface SettingItem {
+  value: string
+  label: string
+  disabled?: boolean
+  /** Shown under the label, e.g. why the item is disabled. */
+  description?: string
 }
 
 function SettingField({
@@ -105,7 +125,7 @@ function SettingField({
   onChange,
 }: {
   label: string
-  items: { value: string; label: string }[]
+  items: SettingItem[]
   value: string
   onChange: (value: string) => void
 }) {
@@ -120,8 +140,15 @@ function SettingField({
         </SelectTrigger>
         <SelectContent>
           {items.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.label}
+            <SelectItem key={item.value} value={item.value} disabled={item.disabled}>
+              {item.description ? (
+                <span className="flex flex-col">
+                  {item.label}
+                  <span className="text-xs whitespace-normal text-muted-foreground">{item.description}</span>
+                </span>
+              ) : (
+                item.label
+              )}
             </SelectItem>
           ))}
         </SelectContent>

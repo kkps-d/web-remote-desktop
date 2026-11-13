@@ -35,11 +35,22 @@ export interface EncodingStats {
 export interface StreamSettings extends Resolution {
   framerate: number
   bitrateKbps: number
+  /** Id of an encoder from `StreamInfo.encoders`. */
+  encoder: string
+}
+
+/** An H.264 encoder on the agent; unavailable ones can't run on that computer. */
+export interface EncoderOption {
+  id: string
+  label: string
+  available: boolean
+  unavailableReason?: string | null
 }
 
 export interface StreamInfo {
   source: Resolution
   settings: StreamSettings
+  encoders: EncoderOption[]
 }
 
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */

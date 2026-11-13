@@ -1,7 +1,7 @@
 namespace Agent;
 
 /// <summary>Holds the single active viewer session. A new viewer replaces the current one.</summary>
-sealed class ViewerSessions(ILogger<ViewerSessions> logger) : IDisposable
+sealed class ViewerSessions(EncoderCatalog encoders, ILogger<ViewerSessions> logger) : IDisposable
 {
     // Serializes setup so only one pipeline captures the desktop at a time. Setup blocks for
     // seconds, so it has its own lock and stopping a session never waits for it.
@@ -25,7 +25,7 @@ sealed class ViewerSessions(ILogger<ViewerSessions> logger) : IDisposable
                 }
             }
 
-            var session = StreamSession.Start(offerSdp, codec, logger);
+            var session = StreamSession.Start(offerSdp, codec, encoders, logger);
             session.Ended += ended => Stop(ended.Id);
             lock (gate)
             {
@@ -77,7 +77,7 @@ sealed class ViewerSessions(ILogger<ViewerSessions> logger) : IDisposable
         }
     }
 
-    static StreamInfo Info(StreamSession session) => new(session.SourceResolution, session.Settings);
+    StreamInfo Info(StreamSession session) => new(session.SourceResolution, session.Settings, encoders.Options);
 
     void StopCurrent()
     {

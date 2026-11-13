@@ -13,10 +13,15 @@ sealed class EncodeTiming
     double totalMilliseconds;
     long framesEncoded;
 
-    public EncodeTiming(Element encoder)
+    /// <summary>
+    /// Times the given encoder bin, including any upload or download it does around the encoder.
+    /// Totals carry over from a previous encoder so clients' per-interval deltas stay valid.
+    /// </summary>
+    public void Attach(Bin encoderBin)
     {
-        encoder.GetStaticPad("sink").AddProbe(PadProbeType.Buffer, OnInput);
-        encoder.GetStaticPad("src").AddProbe(PadProbeType.Buffer, OnOutput);
+        lock (gate) pending.Clear();
+        encoderBin.GetStaticPad("sink").AddProbe(PadProbeType.Buffer, OnInput);
+        encoderBin.GetStaticPad("src").AddProbe(PadProbeType.Buffer, OnOutput);
     }
 
     PadProbeReturn OnInput(Pad pad, PadProbeInfo info)

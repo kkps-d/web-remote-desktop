@@ -32,8 +32,8 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 - C# (.NET 10) console app running in the logged-in user's session (not a Windows service).
 - GStreamer does capture, encoding and WebRTC; C# only wires it together.
   - Bindings: `gstreamer-sharp-netcore` 0.0.8 (the only `gstreamer-sharp` package on NuGet).
-  - Pipeline: `d3d11screencapturesrc ! d3d11convert ! mfh264enc ! h264parse ! rtph264pay ! capssetter ! webrtcbin`.
-  - Encoder: `mfh264enc` (uses the hardware encoder when available), `x264enc tune=zerolatency` as fallback.
+  - Pipeline: `d3d11screencapturesrc ! d3d11convert ! <encoder bin> ! h264parse ! rtph264pay ! capssetter ! webrtcbin`.
+  - Encoder: one of the H.264 picks in [ENCODERS.md](ENCODERS.md), chosen per session; the default is the first available (NVENC, AMF, Media Foundation, Direct3D 12, x264, Microsoft software).
 - Signaling: ASP.NET Core minimal API, `POST /offer` with CORS.
   - The browser is the offerer (receive-only video + `input` data channel).
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
@@ -80,10 +80,12 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
 
 ### Stream settings
 
-- Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps) and bitrate; the stats overlay shows source and stream resolution.
-- Agent: `GET /sessions/{id}` returns the source resolution and current settings; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
+- Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder; the stats overlay shows source and stream resolution.
+- Encoders the agent can't use are greyed out with the reason. GPU encoders count only on the GPU driving the captured display (found with the GStreamer device monitor); others would copy every frame between GPUs. Media Foundation encoders are off while NVENC is available, because running one breaks NVENC until the agent restarts (see [ENCODERS.md](ENCODERS.md)).
+- Each encoder's size limits come from its sink pad template (NVENC, AMF and D3D12: 4096 px at most). A resolution or encoder change outside them is rejected with a 400 before the pipeline changes. A display larger than the default encoder accepts starts scaled down to fit.
+- Agent: `GET /sessions/{id}` returns the source resolution, current settings and the encoder list; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
 - Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.
-- Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and `mfh264enc` picks up a new `bitrate` on the next frame.
+- Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and the encoder picks up a new `bitrate` on the next frame. Switching encoder blocks the capsfilter's output for one frame and swaps the encoder bin; the new encoder starts with a keyframe.
 
 ### v2.0 scope: orchprox
 

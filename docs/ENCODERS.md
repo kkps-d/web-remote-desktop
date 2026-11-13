@@ -17,6 +17,7 @@ Notes:
 
 - `x264enc` is GPL. If that blocks distribution, `openh264enc` (BSD) is the alternative, but it was about 10× slower here.
 - `d3d12h264enc` needs a recent GPU and driver with D3D12 Video encode support.
+- Once NVENC has run, running any Media Foundation encoder (NVIDIA's or Microsoft's software one) in the same process makes every later NVENC session fail with `NV_ENC_ERR_INVALID_VERSION` until the process restarts. Reproduced with plain GStreamer 1.28.8 and driver 610.88, so the agent turns both Media Foundation picks off while NVENC is available. They remain the fallback when NVENC isn't.
 - AMF has only been tested on a Radeon iGPU, where it took ~17 ms per frame. A discrete card should be faster; this is the main thing to confirm.
 - AV1 would give better quality per bit but needs NVIDIA Ada (RTX 40) or AMD RDNA3 or newer, and many TVs can't decode it in hardware.
 
@@ -47,7 +48,7 @@ The Microsoft software encoder is the `mfh264*enc` whose description says "H264 
 - A warning that only some frames were timed means the encoder dropped or reordered frames (B-frames). Its numbers are unreliable, so turn off B-frames and lookahead.
 - If execution policy blocks the script: `powershell -ExecutionPolicy Bypass -File .\scripts\test-encoder.ps1 ...`
 
-Viewer-side decoding (smart TVs) can only be checked through the agent, which currently uses `mfh264enc`. To try another encoder there, change the encoder in `PipelineDescription` in `agent/StreamSession.cs`, keeping `name=encoder` and `bitrate`, and replacing `gop-size` with the encoder's own keyframe interval property (`key-int-max` for `x264enc`). CPU encoders need `d3d11download !` between the `output` capsfilter and the encoder, because they only accept system memory. `d3d12*enc` also needs the D3D12 capture elements there.
+To check viewer-side decoding (smart TVs), pick the encoder in the client's stream settings popover; it switches live. The agent's definitions are in `agent/Encoders.cs`. There, CPU encoders get `d3d11download` and `d3d12h264enc` gets `d3d12upload`, which takes D3D11 frames directly.
 
 ## Results
 

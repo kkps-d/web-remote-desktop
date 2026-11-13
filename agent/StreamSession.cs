@@ -14,13 +14,13 @@ sealed class InvalidSettingsException(string message) : Exception(message);
 
 record Resolution(int Width, int Height);
 
-record StreamSettings(int Width, int Height, int Framerate, int BitrateKbps);
+record StreamSettings(int Width, int Height, int Framerate, int BitrateKbps, string Encoder);
 
 /// <summary>A partial settings change; null fields keep their current value.</summary>
-record StreamSettingsUpdate(int? Width, int? Height, int? Framerate, int? BitrateKbps);
+record StreamSettingsUpdate(int? Width, int? Height, int? Framerate, int? BitrateKbps, string? Encoder);
 
 /// <summary>What the client sees about a session's stream.</summary>
-record StreamInfo(Resolution Source, StreamSettings Settings);
+record StreamInfo(Resolution Source, StreamSettings Settings, IReadOnlyList<EncoderOption> Encoders);
 
 /// <summary>
 /// One viewer's stream: a capture → encode → webrtcbin pipeline that answers the viewer's
@@ -43,8 +43,10 @@ sealed class StreamSession : IDisposable
 
     readonly Pipeline pipeline;
     readonly Element webrtc;
-    readonly EncodeTiming encodeTiming;
+    readonly EncodeTiming encodeTiming = new();
+    readonly EncoderCatalog encoders;
     readonly ILogger logger;
+    Bin encoderBin;
     readonly Timer connectionMonitor;
     DateTime? connectDeadline;
     DateTime? disconnectedSince;
@@ -61,27 +63,32 @@ sealed class StreamSession : IDisposable
     /// <summary>Raised once, from a background thread, when the connection fails or the pipeline errors.</summary>
     public event Action<StreamSession>? Ended;
 
-    StreamSession(H264Codec codec, ILogger logger)
+    StreamSession(H264Codec codec, EncoderCatalog encoders, ILogger logger)
     {
+        this.encoders = encoders;
         this.logger = logger;
-        pipeline = (Pipeline)Parse.Launch(PipelineDescription(codec));
+        Settings = new(0, 0, DefaultFramerate, DefaultBitrateKbps, encoders.Default);
+        pipeline = (Pipeline)Parse.Launch(PipelineDescription(codec, InitialSize(encoders.Limits(Settings.Encoder))));
         webrtc = pipeline.GetByName("webrtc");
-        encodeTiming = new EncodeTiming(pipeline.GetByName("encoder"));
+        encoderBin = CreateEncoderBin(Settings.Encoder, Settings.BitrateKbps);
+        pipeline.Add(encoderBin);
+        if (!LinkEncoder(encoderBin)) throw new InvalidOperationException($"Could not link the {Settings.Encoder} encoder.");
+        encodeTiming.Attach(encoderBin);
         connectionMonitor = new Timer(_ => CheckConnection());
     }
 
     /// <summary>Starts streaming and answers the offer. Blocks for up to a few seconds.</summary>
-    public static StreamSession Start(string offerSdp, H264Codec codec, ILogger logger)
+    public static StreamSession Start(string offerSdp, H264Codec codec, EncoderCatalog encoders, ILogger logger)
     {
-        var session = new StreamSession(codec, logger);
+        var session = new StreamSession(codec, encoders, logger);
         try
         {
             new Thread(session.WatchBus) { IsBackground = true, Name = $"bus {session.Id}" }.Start();
             session.pipeline.SetState(State.Playing);
             session.AnswerSdp = session.Answer(offerSdp);
-            // Answer waits for the first frame, so the capture caps are known by now.
-            var source = session.SourceResolution;
-            session.Settings = session.Settings with { Width = source.Width, Height = source.Height };
+            // Answer waits for the first frame, so the output caps are known by now.
+            var size = CapsSize(session.pipeline.GetByName("output").GetStaticPad("src"));
+            session.Settings = session.Settings with { Width = size.Width, Height = size.Height };
             session.connectDeadline = DateTime.UtcNow + ConnectTimeout;
             session.connectionMonitor.Change(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
             return session;
@@ -96,15 +103,79 @@ sealed class StreamSession : IDisposable
     // webrtcbin matches our stream to the offer by intersecting RTP caps exactly, so the payload
     // type and profile-level-id must be the browser's. Desktop resolutions need a higher H.264
     // level than browsers offer; they accept it (level-asymmetry-allowed=1), so capssetter just
-    // relabels the caps.
-    static string PipelineDescription(H264Codec codec) =>
+    // relabels the caps. AMF labels its constrained output plain "baseline", so accept both.
+    // The encoder bin goes between the two chains; see CreateEncoderBin.
+    static string PipelineDescription(H264Codec codec, Resolution? size) =>
         "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! " +
-        $"capsfilter name=output caps={OutputCaps(null, DefaultFramerate)} ! " +
-        $"mfh264enc name=encoder low-latency=true bitrate={DefaultBitrateKbps} gop-size=60 ! h264parse ! " +
-        "video/x-h264,profile=constrained-baseline ! " +
+        $"capsfilter name=output caps={OutputCaps(size, DefaultFramerate)}  " +
+        "h264parse name=parse ! video/x-h264,profile=(string){constrained-baseline,baseline} ! " +
         $"rtph264pay pt={codec.PayloadType} config-interval=-1 aggregate-mode=zero-latency ! " +
         $"capssetter caps=\"application/x-rtp,profile-level-id=(string){codec.ProfileLevelId}\" ! " +
         "webrtcbin name=webrtc bundle-policy=max-bundle";
+
+    // Streams start at native resolution (null), unless the display is larger than the encoder
+    // accepts; then they start scaled down to fit, e.g. NVENC's 4096 px on a 5K display.
+    static Resolution? InitialSize(SizeLimits limits)
+    {
+        var display = Native.GetPrimaryDisplaySize();
+        if (display is null || limits.Fits(display)) return null;
+        return limits.ShrinkToFit(display);
+    }
+
+    Bin CreateEncoderBin(string encoder, int bitrateKbps) =>
+        Parse.BinFromDescription(encoders.Describe(encoder, bitrateKbps), true);
+
+    bool LinkEncoder(Bin bin) =>
+        pipeline.GetByName("output").GetStaticPad("src").Link(bin.GetStaticPad("sink")) == PadLinkReturn.Ok &&
+        bin.GetStaticPad("src").Link(pipeline.GetByName("parse").GetStaticPad("sink")) == PadLinkReturn.Ok;
+
+    // Swaps the encoder bin while streaming. Blocking the capsfilter's output holds the next frame
+    // while the bins are exchanged; the new encoder starts with a keyframe, and rtph264pay sends
+    // SPS/PPS with it, so the browser keeps decoding without renegotiating.
+    void SwapEncoder(string encoder, int bitrateKbps)
+    {
+        var next = CreateEncoderBin(encoder, bitrateKbps);
+        var output = pipeline.GetByName("output").GetStaticPad("src");
+        var parseSink = pipeline.GetByName("parse").GetStaticPad("sink");
+        using var swapped = new ManualResetEventSlim();
+        string? failure = null;
+
+        output.AddProbe(PadProbeType.BlockDownstream, (_, _) =>
+        {
+            try
+            {
+                var previous = encoderBin;
+                output.Unlink(previous.GetStaticPad("sink"));
+                previous.GetStaticPad("src").Unlink(parseSink);
+                previous.SetState(State.Null);
+                pipeline.Remove(previous);
+                previous.Dispose();
+
+                pipeline.Add(next);
+                encoderBin = next;
+                encodeTiming.Attach(next);
+                if (!LinkEncoder(next) || !next.SyncStateWithParent())
+                    failure = $"Could not start the {encoder} encoder.";
+            }
+            catch (Exception ex)
+            {
+                failure = $"Could not switch to the {encoder} encoder: {ex.Message}";
+            }
+            finally
+            {
+                swapped.Set();
+            }
+            return PadProbeReturn.Remove;
+        });
+
+        // The probe fires on the next frame, which the capture source sends at the frame rate.
+        if (!swapped.Wait(SetupTimeout)) failure = "The encoder switch timed out.";
+        if (failure is null) return;
+        // The old encoder is gone, so there's nothing to fall back to.
+        logger.LogError("Session {Id}: {Failure}", Id, failure);
+        End(failure);
+        throw new InvalidOperationException(failure);
+    }
 
     // d3d11convert scales to the output size, and the capture source captures at the output frame
     // rate. Changing these caps while playing renegotiates the pipeline; the encoder restarts with
@@ -117,19 +188,17 @@ sealed class StreamSession : IDisposable
     public record H264Codec(int PayloadType, string ProfileLevelId);
 
     /// <summary>The stream's current settings.</summary>
-    public StreamSettings Settings { get; private set; } = new(0, 0, DefaultFramerate, DefaultBitrateKbps);
+    public StreamSettings Settings { get; private set; }
 
     /// <summary>The captured desktop's resolution.</summary>
-    public Resolution SourceResolution
+    public Resolution SourceResolution => CapsSize(pipeline.GetByName("capture").GetStaticPad("src"));
+
+    static Resolution CapsSize(Pad pad)
     {
-        get
-        {
-            var caps = pipeline.GetByName("capture").GetStaticPad("src").CurrentCaps;
-            var structure = caps.GetStructure(0);
-            structure.GetInt("width", out var width);
-            structure.GetInt("height", out var height);
-            return new Resolution(width, height);
-        }
+        var structure = pad.CurrentCaps.GetStructure(0);
+        structure.GetInt("width", out var width);
+        structure.GetInt("height", out var height);
+        return new Resolution(width, height);
     }
 
     /// <summary>Applies the given settings while streaming. Null fields keep their current value.</summary>
@@ -143,7 +212,8 @@ sealed class StreamSession : IDisposable
             update.Width ?? Settings.Width,
             update.Height ?? Settings.Height,
             update.Framerate ?? Settings.Framerate,
-            update.BitrateKbps ?? Settings.BitrateKbps);
+            update.BitrateKbps ?? Settings.BitrateKbps,
+            update.Encoder ?? Settings.Encoder);
 
         // The encoder needs even dimensions; upscaling would only cost bandwidth.
         if (next.Width < MinDimension || next.Height < MinDimension || next.Width > source.Width ||
@@ -154,15 +224,32 @@ sealed class StreamSession : IDisposable
             throw new InvalidSettingsException($"Frame rate must be 1–{MaxFramerate} fps.");
         if (next.BitrateKbps is < MinBitrateKbps or > MaxBitrateKbps)
             throw new InvalidSettingsException($"Bitrate must be {MinBitrateKbps}–{MaxBitrateKbps} kbps.");
+        if (!encoders.IsAvailable(next.Encoder))
+            throw new InvalidSettingsException($"The {next.Encoder} encoder isn't available on this computer.");
+
+        // An encoder given a size outside its limits fails and ends the session, so check first.
+        var size = new Resolution(next.Width, next.Height);
+        var currentSize = new Resolution(Settings.Width, Settings.Height);
+        var limits = encoders.Limits(next.Encoder);
+        if (!limits.Fits(size))
+            throw new InvalidSettingsException($"{encoders.Label(next.Encoder)} supports {limits}.");
         if (next == Settings) return;
 
-        if (next.Width != Settings.Width || next.Height != Settings.Height || next.Framerate != Settings.Framerate)
-        {
-            var size = new Resolution(next.Width, next.Height);
+        // Every step must leave the running encoder with a size it accepts: switch encoder first
+        // if the new one takes the current size, otherwise resize first.
+        var encoderChanged = next.Encoder != Settings.Encoder;
+        var switchFirst = encoderChanged && limits.Fits(currentSize);
+        if (encoderChanged && !switchFirst && !encoders.Limits(Settings.Encoder).Fits(size))
+            throw new InvalidSettingsException("Change the resolution and the encoder separately.");
+
+        // A new encoder starts with the new bitrate. The others pick it up on their next frame.
+        if (switchFirst)
+            SwapEncoder(next.Encoder, next.BitrateKbps);
+        if (size != currentSize || next.Framerate != Settings.Framerate)
             pipeline.GetByName("output")["caps"] = Caps.FromString(OutputCaps(size, next.Framerate));
-        }
-        // mfh264enc picks up a new bitrate on its next frame.
-        if (next.BitrateKbps != Settings.BitrateKbps)
+        if (encoderChanged && !switchFirst)
+            SwapEncoder(next.Encoder, next.BitrateKbps);
+        else if (!encoderChanged && next.BitrateKbps != Settings.BitrateKbps)
             pipeline.GetByName("encoder")["bitrate"] = (uint)next.BitrateKbps;
 
         Settings = next;

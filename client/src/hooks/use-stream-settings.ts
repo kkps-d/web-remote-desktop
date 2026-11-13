@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react"
 import {
   scaleToHeight,
   type AgentConnection,
-  type Resolution,
   type StreamInfo,
   type StreamSettings,
 } from "@/lib/agent-connection"
@@ -11,10 +10,12 @@ import {
 const SAVED_SETTINGS_KEY = "streamSettings"
 
 // Resolution is saved as a height (null = native) so it adapts to each agent's source size.
+// Encoder is optional because settings saved before the encoder picker don't have one.
 interface SavedSettings {
   height: number | null
   framerate: number
   bitrateKbps: number
+  encoder?: string
 }
 
 // Tagging state with its connection means a new connection starts empty without resetting state in an effect.
@@ -44,7 +45,7 @@ export function useStreamSettings(connection?: AgentConnection) {
       const saved = readSavedSettings()
       if (!saved) return { info }
       try {
-        return { info: await connection.updateStreamSettings(resolveSavedSettings(saved, info.source)) }
+        return { info: await connection.updateStreamSettings(resolveSavedSettings(saved, info)) }
       } catch (error) {
         // Keep streaming with the agent's defaults; the picker shows why.
         return { info, error: errorMessage(error) }
@@ -74,10 +75,19 @@ export function useStreamSettings(connection?: AgentConnection) {
   return { info: current?.info, error: current?.error, update }
 }
 
-/** Turns saved settings into concrete ones for this source; heights at or above it mean native. */
-function resolveSavedSettings(saved: SavedSettings, source: Resolution): StreamSettings {
+/**
+ * Turns saved settings into concrete ones for this agent. Heights at or above the source mean
+ * native, and an encoder this agent can't run is left out so it keeps its default.
+ */
+function resolveSavedSettings(saved: SavedSettings, { source, encoders }: StreamInfo): Partial<StreamSettings> {
   const size = saved.height === null || saved.height >= source.height ? source : scaleToHeight(source, saved.height)
-  return { ...size, framerate: saved.framerate, bitrateKbps: saved.bitrateKbps }
+  const encoderAvailable = encoders.some((encoder) => encoder.id === saved.encoder && encoder.available)
+  return {
+    ...size,
+    framerate: saved.framerate,
+    bitrateKbps: saved.bitrateKbps,
+    ...(encoderAvailable && { encoder: saved.encoder }),
+  }
 }
 
 function readSavedSettings(): SavedSettings | undefined {
@@ -86,7 +96,8 @@ function readSavedSettings(): SavedSettings | undefined {
     if (
       (saved?.height === null || Number.isInteger(saved?.height)) &&
       Number.isInteger(saved?.framerate) &&
-      Number.isInteger(saved?.bitrateKbps)
+      Number.isInteger(saved?.bitrateKbps) &&
+      (saved?.encoder === undefined || typeof saved.encoder === "string")
     )
       return saved
   } catch {
@@ -99,6 +110,7 @@ function saveSettings({ source, settings }: StreamInfo) {
     height: settings.height === source.height ? null : settings.height,
     framerate: settings.framerate,
     bitrateKbps: settings.bitrateKbps,
+    encoder: settings.encoder,
   }
   localStorage.setItem(SAVED_SETTINGS_KEY, JSON.stringify(saved))
 }

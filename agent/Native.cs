@@ -2,9 +2,42 @@ using System.Runtime.InteropServices;
 
 namespace Agent;
 
-/// <summary>Direct native calls for things the gstreamer-sharp bindings get wrong.</summary>
+/// <summary>Direct native calls for things the gstreamer-sharp bindings get wrong or lack.</summary>
 static class Native
 {
+    const int EnumCurrentSettings = -1;
+
+    // DEVMODEW, display variant.
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct DevMode
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+        public ushort SpecVersion, DriverVersion, Size, DriverExtra;
+        public uint Fields;
+        public int PositionX, PositionY;
+        public uint DisplayOrientation, DisplayFixedOutput;
+        public short Color, Duplex, YResolution, TTOption, Collate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string FormName;
+        public ushort LogPixels;
+        public uint BitsPerPel, PelsWidth, PelsHeight, DisplayFlags, DisplayFrequency;
+        public uint IcmMethod, IcmIntent, MediaType, DitherType, Reserved1, Reserved2, PanningWidth, PanningHeight;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern bool EnumDisplaySettingsW(string? deviceName, int modeNum, ref DevMode devMode);
+
+    /// <summary>
+    /// The primary display's mode in physical pixels, which d3d11screencapturesrc captures by
+    /// default; unlike GetSystemMetrics, it isn't scaled for DPI. Null if it can't be read.
+    /// </summary>
+    public static Resolution? GetPrimaryDisplaySize()
+    {
+        var mode = new DevMode { Size = (ushort)Marshal.SizeOf<DevMode>() };
+        return EnumDisplaySettingsW(null, EnumCurrentSettings, ref mode)
+            ? new Resolution((int)mode.PelsWidth, (int)mode.PelsHeight)
+            : null;
+    }
+
     [DllImport("gstreamer-1.0-0.dll")]
     static extern void gst_event_parse_segment(IntPtr ev, out IntPtr segment);
 
