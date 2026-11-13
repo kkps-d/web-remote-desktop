@@ -66,7 +66,7 @@ The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) stream
   - Connection status: connecting, connected, failed (with the reason).
   - Stream view scaled to fit the window, keeping aspect ratio.
   - Fullscreen and Disconnect buttons.
-  - Stats dropdown independently toggles Basic and Advanced overlay sections, separated by a subtle divider.
+  - Stats dropdown independently toggles Basic and Advanced overlay sections, separated by a subtle divider. Defaults to Basic only; the choice is remembered in the browser.
     - Help opens a dialog explaining each statistic and its calculation.
     - Basic: stream resolution, bitrate, framerate, network RTT.
     - Advanced: source resolution, encode/decode time, packet loss, jitter, jitter buffer delay, dropped frames, freezes, codec, decoder.

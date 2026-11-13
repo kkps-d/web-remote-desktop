@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import type { AgentConnection, EncodingStats, Resolution } from "@/lib/agent-connection"
+import { advancedStats, basicStats, type StatDefinition, type StatName } from "@/lib/stat-definitions"
 import { averageEncodeMs, readStreamStats, type StatsSample } from "@/lib/stream-stats"
 
 interface StatsOverlayProps {
@@ -52,43 +53,47 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
     }
   }, [connection, advanced])
 
-  const basicRows = [
-    ["Stream", resolution(stats?.width, stats?.height)],
-    ["Bitrate", stats?.bitrateKbps === undefined ? "—" : stats.bitrateKbps >= 1000
-      ? value(stats.bitrateKbps / 1000, "Mbps") : value(stats.bitrateKbps, "kbps", 0)],
-    ["Framerate", value(stats?.fps, "fps", 0)],
-    ["Net. RTT", value(stats?.rttMs, "ms")],
-  ]
-  const advancedRows = [
-    ["Source", resolution(source?.width, source?.height)],
-    ["Encode time", value(encodeMs, "ms/frame")],
-    ["Decode time", value(stats?.decodeMs, "ms/frame")],
-    ["Packet loss", value(stats?.lossPercent, "%")],
-    ["Jitter", value(stats?.jitterMs, "ms")],
-    ["Jitter buffer delay", value(stats?.bufferMs, "ms")],
-    ["Dropped frames", value(stats?.droppedFrames, "frames", 0)],
-    ["Freezes", stats?.freezeCount === undefined ? "—"
-      : `${value(stats.freezeCount, "freezes", 0)} / ${value(stats.freezeSeconds, "s")}`],
-    ["Codec", stats?.codec ?? "—"],
-    ["Decoder", stats?.decoder ?? "—"],
-  ]
+  const values: Record<StatName, string> = {
+    Stream: formatResolution(stats?.width, stats?.height),
+    Bitrate: stats?.bitrateKbps === undefined ? "—" : stats.bitrateKbps >= 1000
+      ? formatValue(stats.bitrateKbps / 1000, "Mbps") : formatValue(stats.bitrateKbps, "kbps", 0),
+    Framerate: formatValue(stats?.fps, "fps", 0),
+    "Net. RTT": formatValue(stats?.rttMs, "ms"),
+    Source: formatResolution(source?.width, source?.height),
+    "Encode time": formatValue(encodeMs, "ms/frame"),
+    "Decode time": formatValue(stats?.decodeMs, "ms/frame"),
+    "Packet loss": formatValue(stats?.lossPercent, "%"),
+    Jitter: formatValue(stats?.jitterMs, "ms"),
+    "Jitter buffer delay": formatValue(stats?.bufferMs, "ms"),
+    "Dropped frames": formatValue(stats?.droppedFrames, "frames", 0),
+    Freezes: stats?.freezeCount === undefined ? "—"
+      : `${formatValue(stats.freezeCount, "freezes", 0)} / ${formatValue(stats.freezeSeconds, "s")}`,
+    Codec: stats?.codec ?? "—",
+    Decoder: stats?.decoder ?? "—",
+  }
 
   return (
     <div className="absolute top-2 left-2 max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto overscroll-contain rounded-md bg-black/70 px-3 py-2 font-mono text-xs text-white">
-      {basic && <StatsSection label="Basic" rows={basicRows} />}
+      {basic && <StatsSection title="Basic" stats={basicStats} values={values} />}
       {basic && advanced && <div className="my-2 border-t border-white/15" />}
-      {advanced && <StatsSection label="Advanced" rows={advancedRows} />}
+      {advanced && <StatsSection title="Advanced" stats={advancedStats} values={values} />}
     </div>
   )
 }
 
-function StatsSection({ label, rows }: { label: string; rows: string[][] }) {
+interface StatsSectionProps {
+  title: string
+  stats: readonly StatDefinition[]
+  values: Record<StatName, string>
+}
+
+function StatsSection({ title, stats, values }: StatsSectionProps) {
   return (
-    <dl aria-label={`${label} statistics`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-white/60">{label}</dt>
-          <dd className="break-words text-right tabular-nums">{value}</dd>
+    <dl aria-label={`${title} statistics`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+      {stats.map(({ name }) => (
+        <div key={name} className="contents">
+          <dt className="text-white/60">{name}</dt>
+          <dd className="break-words text-right tabular-nums">{values[name]}</dd>
         </div>
       ))}
     </dl>
@@ -113,10 +118,10 @@ function pollEverySecond(task: (signal: AbortSignal) => Promise<void>) {
   }
 }
 
-function value(number: number | undefined, unit: string, decimals = 1) {
+function formatValue(number: number | undefined, unit: string, decimals = 1) {
   return number === undefined || !Number.isFinite(number) ? "—" : `${number.toFixed(decimals)} ${unit}`
 }
 
-function resolution(width?: number, height?: number) {
+function formatResolution(width?: number, height?: number) {
   return width && height ? `${width}×${height} px` : "—"
 }

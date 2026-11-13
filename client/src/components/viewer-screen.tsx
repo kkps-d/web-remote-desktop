@@ -19,12 +19,18 @@ interface ViewerScreenProps {
 
 const statusLabels = { connecting: "Connecting…", connected: "Connected", reconnecting: "Reconnecting…" }
 
+const STATS_VISIBILITY_KEY = "statsVisibility"
+
+interface StatsVisibility {
+  basic: boolean
+  advanced: boolean
+}
+
 export function ViewerScreen({ address, connection, status, onDisconnect }: ViewerScreenProps) {
   const connected = status === "connected"
   const stageRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [showBasicStats, setShowBasicStats] = useState(true)
-  const [showAdvancedStats, setShowAdvancedStats] = useState(true)
+  const [statsVisibility, setStatsVisibility] = useStatsVisibility()
   const isFullscreen = useIsFullscreen()
   const streamSettings = useStreamSettings(connection)
 
@@ -51,10 +57,10 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             onChange={streamSettings.update}
           />
           <StatsMenu
-            basic={showBasicStats}
-            advanced={showAdvancedStats}
-            onBasicChange={setShowBasicStats}
-            onAdvancedChange={setShowAdvancedStats}
+            basic={statsVisibility.basic}
+            advanced={statsVisibility.advanced}
+            onBasicChange={(basic) => setStatsVisibility((current) => ({ ...current, basic }))}
+            onAdvancedChange={(advanced) => setStatsVisibility((current) => ({ ...current, advanced }))}
           />
           <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize /> : <Maximize />}
@@ -85,12 +91,12 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             {status === "reconnecting" ? "Connection lost. Reconnecting…" : `Connecting to ${address}…`}
           </div>
         )}
-        {(showBasicStats || showAdvancedStats) && connected && connection && (
+        {(statsVisibility.basic || statsVisibility.advanced) && connected && connection && (
           <StatsOverlay
             connection={connection}
             source={streamSettings.info?.source}
-            basic={showBasicStats}
-            advanced={showAdvancedStats}
+            basic={statsVisibility.basic}
+            advanced={statsVisibility.advanced}
           />
         )}
       </div>
@@ -129,4 +135,23 @@ function useIsFullscreen() {
   }, [])
 
   return isFullscreen
+}
+
+/** Which stats overlay sections are shown, remembered across visits. Defaults to Basic only. */
+function useStatsVisibility() {
+  const [visibility, setVisibility] = useState<StatsVisibility>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STATS_VISIBILITY_KEY) ?? "null")
+      if (typeof saved?.basic === "boolean" && typeof saved?.advanced === "boolean") return saved
+    } catch {
+      // A malformed saved value falls back to the defaults.
+    }
+    return { basic: true, advanced: false }
+  })
+
+  useEffect(() => {
+    localStorage.setItem(STATS_VISIBILITY_KEY, JSON.stringify(visibility))
+  }, [visibility])
+
+  return [visibility, setVisibility] as const
 }
