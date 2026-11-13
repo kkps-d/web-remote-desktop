@@ -21,6 +21,10 @@ static class GStreamerRuntime
         Environment.SetEnvironmentVariable("PATH", bin + ";" + Environment.GetEnvironmentVariable("PATH"));
         UseMsvcGLibNames(bin);
         Gst.Application.Init();
+
+        // GLibSharp releases the native refs of garbage-collected wrappers from a timeout on
+        // GLib's default main context, so something must run it or those refs leak.
+        new Thread(() => new GLib.MainLoop().Run()) { IsBackground = true, Name = "GLib main loop" }.Start();
     }
 
     // GLibSharp only knows MinGW DLL names (libgobject-2.0-0.dll), but the official MSVC

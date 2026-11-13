@@ -55,6 +55,58 @@ static class Native
     [DllImport("gobject-2.0-0.dll")]
     static extern void g_object_get(IntPtr obj, string property, out IntPtr value, IntPtr terminator);
 
+    [DllImport("gobject-2.0-0.dll")]
+    static extern IntPtr g_object_ref_sink(IntPtr obj);
+
+    [DllImport("gobject-2.0-0.dll")]
+    static extern void g_object_unref(IntPtr obj);
+
+    [DllImport("gstreamer-1.0-0.dll")]
+    static extern IntPtr gst_bin_get_by_name(IntPtr bin, string name);
+
+    [DllImport("gstreamer-1.0-0.dll")]
+    static extern IntPtr gst_element_get_static_pad(IntPtr element, string name);
+
+    [DllImport("gstreamer-1.0-0.dll")]
+    static extern IntPtr gst_element_get_bus(IntPtr element);
+
+    // The bindings' wrappers each hold a native ref, released when the wrapper is disposed, or
+    // after it is garbage collected (see GStreamerRuntime). They get ownership wrong in two ways,
+    // and either one keeps an object, and everything it holds, alive for good.
+
+    /// <summary>
+    /// Takes a newly created element, bin or pipeline from the bindings (e.g. Parse.Launch). They
+    /// wrap it without sinking its floating ref, which then leaks unless a bin adopts the object;
+    /// sinking it leaves the wrapper as the only owner.
+    /// </summary>
+    public static T Sink<T>(T obj) where T : GLib.Object
+    {
+        g_object_ref_sink(obj.Handle);
+        g_object_unref(obj.Handle);
+        return obj;
+    }
+
+    // When the bindings first wrap an object a lookup returns with a ref, they keep that ref and
+    // take another, so these lookups wrap the object themselves. Dispose the result when done.
+    public static Gst.Element GetByName(Gst.Bin bin, string name) =>
+        Adopt<Gst.Element>(gst_bin_get_by_name(bin.Handle, name), $"Element {name}");
+
+    public static Gst.Pad GetStaticPad(Gst.Element element, string name) =>
+        Adopt<Gst.Pad>(gst_element_get_static_pad(element.Handle, name), $"Pad {name}");
+
+    public static Gst.Bus GetBus(Gst.Element element) =>
+        Adopt<Gst.Bus>(gst_element_get_bus(element.Handle), "Bus");
+
+    // GetObject without ownership reuses a live wrapper or creates one with its own ref, so the
+    // lookup's ref can always be dropped.
+    static T Adopt<T>(IntPtr owned, string description) where T : GLib.Object
+    {
+        if (owned == IntPtr.Zero) throw new InvalidOperationException($"{description} not found.");
+        var wrapper = (T)GLib.Object.GetObject(owned, false);
+        g_object_unref(owned);
+        return wrapper;
+    }
+
     [DllImport("gstsdp-1.0-0.dll")]
     static extern IntPtr gst_sdp_message_as_text(IntPtr sdp);
 

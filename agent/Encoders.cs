@@ -168,7 +168,9 @@ sealed class EncoderCatalog
     static bool RunsOn(ElementFactory factory, Adapter display)
     {
         if (factory.Name.StartsWith("nvd3d11")) return display.Description.Contains("NVIDIA");
-        using var element = ElementFactory.Make(factory.Name);
-        return element?["adapter-luid"] is long luid && luid == display.Luid;
+        if (ElementFactory.Make(factory.Name) is not { } made) return false;
+        // The element holds a GPU device until it is freed.
+        using var element = Native.Sink(made);
+        return element["adapter-luid"] is long luid && luid == display.Luid;
     }
 }

@@ -41,13 +41,20 @@ sealed class StreamSession : IDisposable
     const int MaxBitrateKbps = 50_000;
     const int MinDimension = 64;
 
+    // Each wrapper holds a native ref (see Native), so the session keeps the ones it uses for its
+    // whole life and Dispose releases them all. Probe callbacks reuse these pad wrappers too.
     readonly Pipeline pipeline;
     readonly Element webrtc;
+    readonly Pad captureSrc;
+    readonly Pad outputSrc;
+    readonly Pad parseSink;
     readonly EncodeTiming encodeTiming = new();
     readonly EncoderCatalog encoders;
     readonly ILogger logger;
-    Bin encoderBin;
+    EncoderBin encoderBin;
     readonly Timer connectionMonitor;
+    // Keeps CheckConnection from reading webrtc while Dispose releases it.
+    readonly Lock monitorGate = new();
     DateTime? connectDeadline;
     DateTime? disconnectedSince;
     string? endReason;
@@ -68,13 +75,22 @@ sealed class StreamSession : IDisposable
         this.encoders = encoders;
         this.logger = logger;
         Settings = new(0, 0, DefaultFramerate, DefaultBitrateKbps, encoders.Default);
-        pipeline = (Pipeline)Parse.Launch(PipelineDescription(codec, InitialSize(encoders.Limits(Settings.Encoder))));
-        webrtc = pipeline.GetByName("webrtc");
+        pipeline = Native.Sink((Pipeline)Parse.Launch(PipelineDescription(codec, InitialSize(encoders.Limits(Settings.Encoder)))));
+        webrtc = Native.GetByName(pipeline, "webrtc");
+        captureSrc = StaticPad("capture", "src");
+        outputSrc = StaticPad("output", "src");
+        parseSink = StaticPad("parse", "sink");
         encoderBin = CreateEncoderBin(Settings.Encoder, Settings.BitrateKbps);
-        pipeline.Add(encoderBin);
+        pipeline.Add(encoderBin.Bin);
         if (!LinkEncoder(encoderBin)) throw new InvalidOperationException($"Could not link the {Settings.Encoder} encoder.");
-        encodeTiming.Attach(encoderBin);
+        encodeTiming.Attach(encoderBin.Sink, encoderBin.Src);
         connectionMonitor = new Timer(_ => CheckConnection());
+    }
+
+    Pad StaticPad(string element, string pad)
+    {
+        using var owner = Native.GetByName(pipeline, element);
+        return Native.GetStaticPad(owner, pad);
     }
 
     /// <summary>Starts streaming and answers the offer. Blocks for up to a few seconds.</summary>
@@ -83,11 +99,12 @@ sealed class StreamSession : IDisposable
         var session = new StreamSession(codec, encoders, logger);
         try
         {
-            new Thread(session.WatchBus) { IsBackground = true, Name = $"bus {session.Id}" }.Start();
+            var bus = Native.GetBus(session.pipeline);
+            new Thread(() => session.WatchBus(bus)) { IsBackground = true, Name = $"bus {session.Id}" }.Start();
             session.pipeline.SetState(State.Playing);
             session.AnswerSdp = session.Answer(offerSdp);
             // Answer waits for the first frame, so the output caps are known by now.
-            var size = CapsSize(session.pipeline.GetByName("output").GetStaticPad("src"));
+            var size = CapsSize(session.outputSrc);
             session.Settings = session.Settings with { Width = size.Width, Height = size.Height };
             session.connectDeadline = DateTime.UtcNow + ConnectTimeout;
             session.connectionMonitor.Change(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
@@ -122,12 +139,26 @@ sealed class StreamSession : IDisposable
         return limits.ShrinkToFit(display);
     }
 
-    Bin CreateEncoderBin(string encoder, int bitrateKbps) =>
-        Parse.BinFromDescription(encoders.Describe(encoder, bitrateKbps), true);
+    /// <summary>An encoder bin and the wrappers the session holds into it.</summary>
+    sealed record EncoderBin(Bin Bin, Pad Sink, Pad Src, Element Encoder) : IDisposable
+    {
+        public void Dispose()
+        {
+            Encoder.Dispose();
+            Src.Dispose();
+            Sink.Dispose();
+            Bin.Dispose();
+        }
+    }
 
-    bool LinkEncoder(Bin bin) =>
-        pipeline.GetByName("output").GetStaticPad("src").Link(bin.GetStaticPad("sink")) == PadLinkReturn.Ok &&
-        bin.GetStaticPad("src").Link(pipeline.GetByName("parse").GetStaticPad("sink")) == PadLinkReturn.Ok;
+    EncoderBin CreateEncoderBin(string encoder, int bitrateKbps)
+    {
+        var bin = Native.Sink(Parse.BinFromDescription(encoders.Describe(encoder, bitrateKbps), true));
+        return new(bin, Native.GetStaticPad(bin, "sink"), Native.GetStaticPad(bin, "src"), Native.GetByName(bin, "encoder"));
+    }
+
+    bool LinkEncoder(EncoderBin bin) =>
+        outputSrc.Link(bin.Sink) == PadLinkReturn.Ok && bin.Src.Link(parseSink) == PadLinkReturn.Ok;
 
     // Swaps the encoder bin while streaming. Blocking the capsfilter's output holds the next frame
     // while the bins are exchanged; the new encoder starts with a keyframe, and rtph264pay sends
@@ -135,26 +166,24 @@ sealed class StreamSession : IDisposable
     void SwapEncoder(string encoder, int bitrateKbps)
     {
         var next = CreateEncoderBin(encoder, bitrateKbps);
-        var output = pipeline.GetByName("output").GetStaticPad("src");
-        var parseSink = pipeline.GetByName("parse").GetStaticPad("sink");
         using var swapped = new ManualResetEventSlim();
         string? failure = null;
 
-        output.AddProbe(PadProbeType.BlockDownstream, (_, _) =>
+        outputSrc.AddProbe(PadProbeType.BlockDownstream, (_, _) =>
         {
             try
             {
                 var previous = encoderBin;
-                output.Unlink(previous.GetStaticPad("sink"));
-                previous.GetStaticPad("src").Unlink(parseSink);
-                previous.SetState(State.Null);
-                pipeline.Remove(previous);
+                outputSrc.Unlink(previous.Sink);
+                previous.Src.Unlink(parseSink);
+                previous.Bin.SetState(State.Null);
+                pipeline.Remove(previous.Bin);
                 previous.Dispose();
 
-                pipeline.Add(next);
+                pipeline.Add(next.Bin);
                 encoderBin = next;
-                encodeTiming.Attach(next);
-                if (!LinkEncoder(next) || !next.SyncStateWithParent())
+                encodeTiming.Attach(next.Sink, next.Src);
+                if (!LinkEncoder(next) || !next.Bin.SyncStateWithParent())
                     failure = $"Could not start the {encoder} encoder.";
             }
             catch (Exception ex)
@@ -191,11 +220,12 @@ sealed class StreamSession : IDisposable
     public StreamSettings Settings { get; private set; }
 
     /// <summary>The captured desktop's resolution.</summary>
-    public Resolution SourceResolution => CapsSize(pipeline.GetByName("capture").GetStaticPad("src"));
+    public Resolution SourceResolution => CapsSize(captureSrc);
 
     static Resolution CapsSize(Pad pad)
     {
-        var structure = pad.CurrentCaps.GetStructure(0);
+        using var caps = pad.CurrentCaps;
+        var structure = caps.GetStructure(0);
         structure.GetInt("width", out var width);
         structure.GetInt("height", out var height);
         return new Resolution(width, height);
@@ -246,11 +276,15 @@ sealed class StreamSession : IDisposable
         if (switchFirst)
             SwapEncoder(next.Encoder, next.BitrateKbps);
         if (size != currentSize || next.Framerate != Settings.Framerate)
-            pipeline.GetByName("output")["caps"] = Caps.FromString(OutputCaps(size, next.Framerate));
+        {
+            using var output = Native.GetByName(pipeline, "output");
+            using var caps = Caps.FromString(OutputCaps(size, next.Framerate));
+            output["caps"] = caps;
+        }
         if (encoderChanged && !switchFirst)
             SwapEncoder(next.Encoder, next.BitrateKbps);
         else if (!encoderChanged && next.BitrateKbps != Settings.BitrateKbps)
-            pipeline.GetByName("encoder")["bitrate"] = (uint)next.BitrateKbps;
+            encoderBin.Encoder["bitrate"] = (uint)next.BitrateKbps;
 
         Settings = next;
         logger.LogInformation("Session {Id} settings changed to {Settings}", Id, next);
@@ -274,7 +308,7 @@ sealed class StreamSession : IDisposable
     {
         // Until the first frame arrives our video pad has no caps, and webrtcbin can't match it
         // to the offer; it would answer with an unrelated, inactive transceiver.
-        var videoPad = webrtc.GetStaticPad("sink_0");
+        using var videoPad = Native.GetStaticPad(webrtc, "sink_0");
         WaitUntil(() => videoPad.CurrentCaps != null, "No video from the capture pipeline.");
 
         if (SDPMessage.NewFromText(offerSdp, out var sdp) != SDPResult.Ok)
@@ -327,7 +361,12 @@ sealed class StreamSession : IDisposable
 
     void CheckConnection()
     {
-        var state = (WebRTCPeerConnectionState)Convert.ToInt32(webrtc["connection-state"]);
+        WebRTCPeerConnectionState state;
+        lock (monitorGate)
+        {
+            if (Volatile.Read(ref disposed) == 1) return;
+            state = (WebRTCPeerConnectionState)Convert.ToInt32(webrtc["connection-state"]);
+        }
         if (state is WebRTCPeerConnectionState.Connected)
             connectDeadline = null;
         if (state is WebRTCPeerConnectionState.Disconnected)
@@ -345,12 +384,14 @@ sealed class StreamSession : IDisposable
         }
     }
 
-    void WatchBus()
+    // Takes ownership of the bus, so it stays valid after Dispose releases the pipeline.
+    void WatchBus(Bus bus)
     {
-        var bus = pipeline.Bus;
+        using var _ = bus;
         while (Volatile.Read(ref disposed) == 0)
         {
-            var message = bus.TimedPopFiltered(200 * Gst.Constants.MSECOND, MessageType.Error | MessageType.Warning);
+            // A message holds a ref to the element that posted it.
+            using var message = bus.TimedPopFiltered(200 * Gst.Constants.MSECOND, MessageType.Error | MessageType.Warning);
             if (message == null) continue;
 
             // The message structure holds both the error text and the debug details.
@@ -387,6 +428,14 @@ sealed class StreamSession : IDisposable
         if (Interlocked.Exchange(ref disposed, 1) == 1) return;
         connectionMonitor.Dispose();
         pipeline.SetState(State.Null);
+
+        // The pipeline and the D3D11 device it holds (with its GPU driver threads) are only
+        // freed once every wrapper into it is released. Wait out a running connection check first.
+        lock (monitorGate) webrtc.Dispose();
+        encoderBin.Dispose();
+        captureSrc.Dispose();
+        outputSrc.Dispose();
+        parseSink.Dispose();
         pipeline.Dispose();
     }
 }

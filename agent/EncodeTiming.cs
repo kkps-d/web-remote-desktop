@@ -17,11 +17,11 @@ sealed class EncodeTiming
     /// Times the given encoder bin, including any upload or download it does around the encoder.
     /// Totals carry over from a previous encoder so clients' per-interval deltas stay valid.
     /// </summary>
-    public void Attach(Bin encoderBin)
+    public void Attach(Pad encoderSink, Pad encoderSrc)
     {
         lock (gate) pending.Clear();
-        encoderBin.GetStaticPad("sink").AddProbe(PadProbeType.Buffer, OnInput);
-        encoderBin.GetStaticPad("src").AddProbe(PadProbeType.Buffer, OnOutput);
+        encoderSink.AddProbe(PadProbeType.Buffer, OnInput);
+        encoderSrc.AddProbe(PadProbeType.Buffer, OnOutput);
     }
 
     PadProbeReturn OnInput(Pad pad, PadProbeInfo info)
