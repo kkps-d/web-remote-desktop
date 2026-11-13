@@ -21,6 +21,12 @@ export interface Resolution {
   height: number
 }
 
+/** The source scaled to the given height, keeping its aspect ratio. */
+export function scaleToHeight(source: Resolution, height: number): Resolution {
+  // The encoder needs even dimensions.
+  return { width: Math.round((height * source.width) / source.height / 2) * 2, height }
+}
+
 export interface EncodingStats {
   totalEncodeTimeMs: number
   framesEncoded: number

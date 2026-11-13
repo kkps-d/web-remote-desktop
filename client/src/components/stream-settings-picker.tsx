@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { Resolution, StreamInfo, StreamSettings } from "@/lib/agent-connection"
+import { scaleToHeight, type Resolution, type StreamInfo, type StreamSettings } from "@/lib/agent-connection"
 
 const FRAMERATES = [15, 30, 60, 120]
 const BITRATES_KBPS = [2000, 4000, 8000, 15000, 25000]
@@ -132,11 +132,7 @@ function SettingField({
 
 /** The source resolution plus common smaller sizes with the same aspect ratio. */
 function resolutionOptions(source: Resolution): Resolution[] {
-  const scaled = SCALED_HEIGHTS.filter((height) => height < source.height).map((height) => ({
-    // The encoder needs even dimensions.
-    width: Math.round((height * source.width) / source.height / 2) * 2,
-    height,
-  }))
+  const scaled = SCALED_HEIGHTS.filter((height) => height < source.height).map((height) => scaleToHeight(source, height))
   return [source, ...scaled]
 }
 
