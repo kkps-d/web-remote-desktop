@@ -1,6 +1,7 @@
 //! One viewer's stream: a capture → encode → webrtcbin pipeline that answers the viewer's SDP
 //! offer and runs until it is stopped or the connection ends.
 
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -16,11 +17,13 @@ use gstreamer_webrtc::{
 };
 use tracing::{debug, error, info, warn};
 
+use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
 use crate::platform;
 use crate::sdp::{H264Codec, InvalidOffer};
 use crate::settings::{
-    DEFAULT_BITRATE_KBPS, DEFAULT_FRAMERATE, Resolution, SizeLimits, StreamSettings,
+    DEFAULT_BITRATE_KBPS, DEFAULT_FRAMERATE, InvalidSettings, Resolution, SizeLimits,
+    StreamSettings, StreamSettingsUpdate, plan_update,
 };
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -43,8 +46,65 @@ impl From<InvalidOffer> for StartError {
     }
 }
 
+impl From<String> for StartError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
 fn failed(message: impl ToString) -> StartError {
     StartError::Failed(message.to_string())
+}
+
+/// Why a settings change wasn't applied.
+#[derive(Debug)]
+pub enum UpdateError {
+    InvalidSettings(String),
+    /// The encoder failed; a failed switch also ends the session.
+    Failed(String),
+    /// The session stopped before the change could start.
+    Stopped,
+}
+
+impl From<InvalidSettings> for UpdateError {
+    fn from(error: InvalidSettings) -> Self {
+        Self::InvalidSettings(error.0)
+    }
+}
+
+impl From<String> for UpdateError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+/// An encoder bin and the parts of it the session uses.
+struct EncoderBin {
+    bin: gst::Bin,
+    sink: gst::Pad,
+    src: gst::Pad,
+    /// The element named "encoder", which takes bitrate changes.
+    encoder: gst::Element,
+}
+
+impl EncoderBin {
+    fn create(encoders: &EncoderCatalog, encoder: &str, bitrate_kbps: i32) -> Result<Self, String> {
+        let description = encoders.describe(encoder, bitrate_kbps);
+        let bin = gst::parse::bin_from_description(&description, true)
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            sink: static_pad(&bin, "sink")?,
+            src: static_pad(&bin, "src")?,
+            encoder: by_name(&bin, "encoder")?,
+            bin,
+        })
+    }
+
+    // The bin goes between the capsfilter and h264parse, which the pipeline description leaves
+    // unlinked.
+    fn link(&self, output_src: &gst::Pad, parse_sink: &gst::Pad) -> bool {
+        output_src.link(&self.sink).is_ok() && self.src.link(parse_sink).is_ok()
+    }
 }
 
 pub struct StreamSession {
@@ -53,7 +113,12 @@ pub struct StreamSession {
     webrtc: gst::Element,
     capture_src: gst::Pad,
     output_src: gst::Pad,
+    parse_sink: gst::Pad,
+    encoder: Mutex<EncoderBin>,
+    encode_timing: Arc<EncodeTiming>,
     settings: Mutex<StreamSettings>,
+    // Serializes settings changes.
+    updating: Mutex<()>,
     end_reason: OnceLock<String>,
     on_ended: Box<dyn Fn(&str) + Send + Sync>,
     stopped: AtomicBool,
@@ -81,24 +146,21 @@ impl StreamSession {
         let output_src = static_pad(&by_name(&pipeline, "output")?, "src")?;
         let parse_sink = static_pad(&by_name(&pipeline, "parse")?, "sink")?;
 
-        // The encoder bin goes between the capsfilter and h264parse, which the pipeline
-        // description leaves unlinked.
-        let bin = gst::parse::bin_from_description(
-            &encoders.describe(encoder, DEFAULT_BITRATE_KBPS),
-            true,
-        )
-        .map_err(failed)?;
-        pipeline.add(&bin).map_err(failed)?;
-        let linked = output_src.link(&static_pad(&bin, "sink")?).is_ok()
-            && static_pad(&bin, "src")?.link(&parse_sink).is_ok();
-        if !linked {
+        let encoder_bin = EncoderBin::create(encoders, encoder, DEFAULT_BITRATE_KBPS)?;
+        pipeline.add(&encoder_bin.bin).map_err(failed)?;
+        if !encoder_bin.link(&output_src, &parse_sink) {
             return Err(failed(format!("Could not link the {encoder} encoder.")));
         }
+        let encode_timing = Arc::new(EncodeTiming::default());
+        encode_timing.attach(&encoder_bin.sink, &encoder_bin.src);
 
         let session = Arc::new(Self {
             id: uuid::Uuid::new_v4().simple().to_string(),
             capture_src: static_pad(&by_name(&pipeline, "capture")?, "src")?,
             output_src,
+            parse_sink,
+            encoder: Mutex::new(encoder_bin),
+            encode_timing,
             pipeline,
             webrtc,
             settings: Mutex::new(StreamSettings {
@@ -108,6 +170,7 @@ impl StreamSession {
                 bitrate_kbps: DEFAULT_BITRATE_KBPS,
                 encoder: encoder.into(),
             }),
+            updating: Mutex::new(()),
             end_reason: OnceLock::new(),
             on_ended: Box::new(on_ended),
             stopped: AtomicBool::new(false),
@@ -151,6 +214,115 @@ impl StreamSession {
     /// The captured desktop's resolution.
     pub fn source_resolution(&self) -> Resolution {
         caps_size(&self.capture_src)
+    }
+
+    pub fn encoding_stats(&self) -> EncodingStats {
+        self.encode_timing.snapshot()
+    }
+
+    /// Applies the given settings while streaming. Missing fields keep their current value.
+    pub fn update(
+        self: &Arc<Self>,
+        update: &StreamSettingsUpdate,
+        encoders: &EncoderCatalog,
+    ) -> Result<(), UpdateError> {
+        let _updating = self.updating.lock().unwrap();
+        // ViewerSessions doesn't hold its lock while updating, so the session may have been
+        // stopped since it was found, e.g. by DELETE or an earlier failed switch.
+        if self.stopped.load(Ordering::SeqCst) {
+            return Err(UpdateError::Stopped);
+        }
+        let current = self.settings();
+        let plan = plan_update(
+            &current,
+            update,
+            self.source_resolution(),
+            |id| encoders.is_available(id).then(|| encoders.limits(id)),
+            |id| encoders.label(id).into(),
+        )?;
+        let next = plan.next;
+        if next == current {
+            return Ok(());
+        }
+        let encoder_changed = next.encoder != current.encoder;
+
+        // A new encoder starts with the new bitrate. The others pick it up on their next frame.
+        if plan.switch_encoder_first {
+            self.swap_encoder(encoders, &next.encoder, next.bitrate_kbps)?;
+        }
+        if next.size() != current.size() || next.framerate != current.framerate {
+            let caps = platform::output_caps(Some(next.size()), next.framerate);
+            let caps = gst::Caps::from_str(&caps).map_err(|error| error.to_string())?;
+            by_name(&self.pipeline, "output")?.set_property("caps", &caps);
+        }
+        if encoder_changed && !plan.switch_encoder_first {
+            self.swap_encoder(encoders, &next.encoder, next.bitrate_kbps)?;
+        } else if !encoder_changed && next.bitrate_kbps != current.bitrate_kbps {
+            let encoder = &self.encoder.lock().unwrap().encoder;
+            encoder.set_property("bitrate", next.bitrate_kbps as u32);
+        }
+
+        info!("Session {} settings changed to {next:?}", self.id);
+        *self.settings.lock().unwrap() = next;
+        Ok(())
+    }
+
+    // Swaps the encoder bin while streaming. Blocking the capsfilter's output holds the next
+    // frame while the bins are exchanged; the new encoder starts with a keyframe, and rtph264pay
+    // sends SPS/PPS with it, so the browser keeps decoding without renegotiating.
+    fn swap_encoder(
+        self: &Arc<Self>,
+        encoders: &EncoderCatalog,
+        encoder: &str,
+        bitrate_kbps: i32,
+    ) -> Result<(), UpdateError> {
+        let next = Mutex::new(Some(EncoderBin::create(encoders, encoder, bitrate_kbps)?));
+        let (sender, swapped) = mpsc::sync_channel(1);
+        // Weak, so a probe that never fires doesn't keep the session alive.
+        let session = Arc::downgrade(self);
+        let encoder_id = encoder.to_owned();
+        self.output_src
+            .add_probe(gst::PadProbeType::BLOCK_DOWNSTREAM, move |_, _| {
+                let next = next.lock().unwrap().take();
+                if let (Some(session), Some(next)) = (session.upgrade(), next)
+                    && !session.stopped.load(Ordering::SeqCst)
+                {
+                    let _ = sender.send(session.replace_encoder(next, &encoder_id));
+                }
+                gst::PadProbeReturn::Remove
+            });
+
+        // The probe fires on the next frame, which the capture source sends at the frame rate.
+        let failure = match swapped.recv_timeout(SETUP_TIMEOUT) {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(failure)) => failure,
+            Err(_) => "The encoder switch timed out.".to_owned(),
+        };
+        // The old encoder is gone, so there's nothing to fall back to.
+        error!("Session {}: {failure}", self.id);
+        self.end(failure.clone());
+        Err(UpdateError::Failed(failure))
+    }
+
+    // Runs in the blocking probe, on the streaming thread.
+    fn replace_encoder(&self, next: EncoderBin, encoder: &str) -> Result<(), String> {
+        let mut current = self.encoder.lock().unwrap();
+        let previous = std::mem::replace(&mut *current, next);
+        let _ = self.output_src.unlink(&previous.sink);
+        let _ = previous.src.unlink(&self.parse_sink);
+        let _ = previous.bin.set_state(gst::State::Null);
+        let _ = self.pipeline.remove(&previous.bin);
+
+        self.pipeline
+            .add(&current.bin)
+            .map_err(|error| format!("Could not switch to the {encoder} encoder: {error}"))?;
+        self.encode_timing.attach(&current.sink, &current.src);
+        if !current.link(&self.output_src, &self.parse_sink)
+            || current.bin.sync_state_with_parent().is_err()
+        {
+            return Err(format!("Could not start the {encoder} encoder."));
+        }
+        Ok(())
     }
 
     /// Why the session ended, or None while it runs.
@@ -448,15 +620,15 @@ fn caps_size(pad: &gst::Pad) -> Resolution {
     }
 }
 
-fn by_name(bin: &impl IsA<gst::Bin>, name: &str) -> Result<gst::Element, StartError> {
+fn by_name(bin: &impl IsA<gst::Bin>, name: &str) -> Result<gst::Element, String> {
     bin.by_name(name)
-        .ok_or_else(|| failed(format!("Element {name} not found.")))
+        .ok_or_else(|| format!("Element {name} not found."))
 }
 
-fn static_pad(element: &impl IsA<gst::Element>, name: &str) -> Result<gst::Pad, StartError> {
+fn static_pad(element: &impl IsA<gst::Element>, name: &str) -> Result<gst::Pad, String> {
     element
         .static_pad(name)
-        .ok_or_else(|| failed(format!("Pad {name} not found.")))
+        .ok_or_else(|| format!("Pad {name} not found."))
 }
 
 #[cfg(test)]

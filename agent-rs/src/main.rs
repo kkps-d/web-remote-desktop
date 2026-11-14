@@ -1,3 +1,4 @@
+mod encode_timing;
 mod encoders;
 // Used from a later phase on; each allow goes once its module is fully used.
 #[allow(dead_code)]
@@ -7,28 +8,29 @@ mod platform;
 mod sdp;
 mod session;
 mod sessions;
-#[allow(dead_code)]
 mod settings;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 
-use axum::Router;
 use axum::body::Bytes;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::http::header::{CONTENT_TYPE, LOCATION};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use axum::{Json, Router};
 use socket2::{Domain, Protocol, Socket, Type};
 use tower_http::cors::{AllowHeaders, AllowMethods, Any, CorsLayer};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::encoders::EncoderCatalog;
-use crate::session::StartError;
+use crate::session::{StartError, UpdateError};
 use crate::sessions::ViewerSessions;
+use crate::settings::StreamSettingsUpdate;
 
 const DEFAULT_PORT: u16 = 8080;
 
@@ -72,7 +74,8 @@ async fn main() {
     // WHEP-style signaling: POST an SDP offer, get the SDP answer and a session URL back.
     let app = Router::new()
         .route("/offer", post(offer))
-        .route("/sessions/{id}", get(info).delete(stop))
+        .route("/sessions/{id}", get(info).patch(update).delete(stop))
+        .route("/sessions/{id}/stats", get(stats))
         .layer(cors)
         .with_state(sessions.clone());
 
@@ -135,8 +138,46 @@ async fn offer(
 // and the encoders this computer can use.
 async fn info(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> Response {
     match sessions.info(&id) {
-        Some(info) => axum::Json(info).into_response(),
+        Some(info) => Json(info).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn stats(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> Response {
+    match sessions.stats(&id) {
+        Some(stats) => Json(stats).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+// Changes stream settings while streaming. Omitted fields keep their current value.
+async fn update(
+    State(sessions): State<Arc<ViewerSessions>>,
+    Path(id): Path<String>,
+    update: Result<Json<StreamSettingsUpdate>, JsonRejection>,
+) -> Response {
+    let update = match update {
+        Ok(Json(update)) => update,
+        Err(rejection @ JsonRejection::MissingJsonContentType(_)) => {
+            return (StatusCode::UNSUPPORTED_MEDIA_TYPE, rejection.body_text()).into_response();
+        }
+        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
+    };
+
+    // An encoder switch blocks until the next frame.
+    let updated = tokio::task::spawn_blocking(move || sessions.update(&id, &update))
+        .await
+        .unwrap_or_else(|panic| Some(Err(UpdateError::Failed(panic.to_string()))));
+    match updated {
+        Some(Ok(info)) => Json(info).into_response(),
+        None | Some(Err(UpdateError::Stopped)) => StatusCode::NOT_FOUND.into_response(),
+        Some(Err(UpdateError::InvalidSettings(message))) => {
+            (StatusCode::BAD_REQUEST, message).into_response()
+        }
+        // An encoder that fails to start ends the session; tell the client why.
+        Some(Err(UpdateError::Failed(message))) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+        }
     }
 }
 

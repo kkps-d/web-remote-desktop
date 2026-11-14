@@ -146,6 +146,14 @@ impl EncoderCatalog {
         self.default
     }
 
+    pub fn is_available(&self, id: &str) -> bool {
+        self.available.contains_key(id)
+    }
+
+    pub fn label(&self, id: &str) -> &'static str {
+        definition(id).label
+    }
+
     /// The frame sizes an available encoder accepts.
     pub fn limits(&self, id: &str) -> SizeLimits {
         self.available[id].limits

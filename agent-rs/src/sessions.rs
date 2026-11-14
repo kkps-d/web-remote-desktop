@@ -5,10 +5,11 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use tracing::info;
 
+use crate::encode_timing::EncodingStats;
 use crate::encoders::{EncoderCatalog, EncoderOption};
 use crate::sdp;
-use crate::session::{StartError, StreamSession};
-use crate::settings::{Resolution, StreamSettings};
+use crate::session::{StartError, StreamSession, UpdateError};
+use crate::settings::{Resolution, StreamSettings, StreamSettingsUpdate};
 
 /// What the client sees about a session's stream.
 #[derive(Serialize)]
@@ -81,13 +82,40 @@ impl ViewerSessions {
 
     /// The session's stream info, or None if it isn't the current session.
     pub fn info(&self, id: &str) -> Option<StreamInfo> {
+        self.find(id).map(|session| self.info_of(&session))
+    }
+
+    pub fn stats(&self, id: &str) -> Option<EncodingStats> {
+        self.find(id).map(|session| session.encoding_stats())
+    }
+
+    /// Changes the session's stream settings. Returns None if it isn't the current session.
+    pub fn update(
+        &self,
+        id: &str,
+        update: &StreamSettingsUpdate,
+    ) -> Option<Result<StreamInfo, UpdateError>> {
+        // The lock isn't held while updating: a failed encoder switch ends the session, and
+        // ending takes the lock to stop it. The Arc keeps the session valid meanwhile.
+        let session = self.find(id)?;
+        let updated = session.update(update, &self.encoders);
+        Some(updated.map(|()| self.info_of(&session)))
+    }
+
+    fn find(&self, id: &str) -> Option<Arc<StreamSession>> {
         let current = self.current.lock().unwrap();
-        let session = current.as_ref().filter(|session| session.id() == id)?;
-        Some(StreamInfo {
+        current
+            .as_ref()
+            .filter(|session| session.id() == id)
+            .cloned()
+    }
+
+    fn info_of(&self, session: &StreamSession) -> StreamInfo {
+        StreamInfo {
             source: session.source_resolution(),
             settings: session.settings(),
             encoders: self.encoders.options().to_vec(),
-        })
+        }
     }
 
     /// Stops the current session, waiting for any setup in progress.
