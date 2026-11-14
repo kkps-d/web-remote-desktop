@@ -1,7 +1,207 @@
-//! The viewer's messages on the "input" data channel; see the input protocol in REQUIREMENTS.md.
+//! The viewer's "input" data channel: its messages (see the input protocol in REQUIREMENTS.md)
+//! and how they reach the OS. Held keys and buttons are released when the channel closes or the
+//! session ends.
 
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+
+use gstreamer as gst;
+use gstreamer::prelude::*;
+use gstreamer_webrtc::WebRTCDataChannel;
 use serde::Deserialize;
 use serde_json::Value;
+use tracing::{info, warn};
+
+use crate::platform;
+
+/// Injects input into the OS. Positions and sizes refer to the primary display.
+pub trait InputBackend: Send {
+    /// Moves to a position given as 0–1 fractions of the display.
+    fn move_to(&mut self, x: f64, y: f64);
+    /// Moves by whole pixels, without pointer acceleration.
+    fn move_by(&mut self, dx: i32, dy: i32);
+    fn button(&mut self, button: MouseButton, down: bool);
+    /// Scrolls by wheel units (120 per notch), positive meaning right and down like DOM deltas.
+    fn scroll(&mut self, dx: i32, dy: i32);
+    /// Presses or releases a key by its `KeyboardEvent.code`. Returns false, sending nothing,
+    /// for a code it doesn't know.
+    fn key(&mut self, code: &str, down: bool) -> bool;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
+
+impl MouseButton {
+    /// From a DOM button number; other buttons aren't supported.
+    fn from_dom(button: i32) -> Option<Self> {
+        match button {
+            0 => Some(Self::Left),
+            1 => Some(Self::Middle),
+            2 => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
+/// Remembers what is held, so it can be released when the viewer goes away.
+pub struct InputState<B> {
+    backend: B,
+    held_buttons: HashSet<MouseButton>,
+    held_keys: HashSet<String>,
+}
+
+impl<B: InputBackend> InputState<B> {
+    pub fn new(backend: B) -> Self {
+        Self {
+            backend,
+            held_buttons: HashSet::new(),
+            held_keys: HashSet::new(),
+        }
+    }
+
+    fn button(&mut self, button: i32, down: bool) {
+        let Some(button) = MouseButton::from_dom(button) else {
+            return;
+        };
+        if down {
+            self.held_buttons.insert(button);
+        } else if !self.held_buttons.remove(&button) {
+            return;
+        }
+        self.backend.button(button, down);
+    }
+
+    fn key(&mut self, code: &str, down: bool) {
+        // A repeated down is an auto-repeat and is sent again.
+        if down {
+            if self.backend.key(code, true) {
+                self.held_keys.insert(code.to_owned());
+            }
+        } else if self.held_keys.remove(code) {
+            self.backend.key(code, false);
+        }
+    }
+
+    /// Releases every held key and button, e.g. when the viewer disconnects.
+    pub fn release_all(&mut self) {
+        for code in self.held_keys.drain() {
+            self.backend.key(&code, false);
+        }
+        for button in self.held_buttons.drain() {
+            self.backend.button(button, false);
+        }
+    }
+}
+
+/// Why a message wasn't applied.
+#[derive(Debug)]
+enum Rejected {
+    Unknown,
+    Invalid(serde_json::Error),
+}
+
+/// Applies one message from the viewer.
+fn apply<B: InputBackend>(
+    text: &str,
+    input: &mut InputState<B>,
+    set_stream_cursor: &dyn Fn(bool),
+) -> Result<(), Rejected> {
+    match parse(text).map_err(Rejected::Invalid)? {
+        InputMessage::Move { x, y } => input.backend.move_to(x, y),
+        InputMessage::MoveBy { dx, dy } => input.backend.move_by(dx, dy),
+        InputMessage::Button { button, down } => input.button(button, down),
+        InputMessage::Wheel { dx, dy } => input.backend.scroll(dx, dy),
+        InputMessage::Key { code, down } => input.key(&code, down),
+        // Applied once the touch backend exists.
+        InputMessage::Touch { .. } => {}
+        InputMessage::ReleaseAll => input.release_all(),
+        InputMessage::Cursor { visible } => set_stream_cursor(visible),
+        InputMessage::Unknown => return Err(Rejected::Unknown),
+    }
+    Ok(())
+}
+
+/// Receives the viewer's "input" data channel from webrtcbin and injects its messages.
+pub struct InputChannel {
+    session_id: String,
+    input: Mutex<InputState<platform::InputInjector>>,
+    set_stream_cursor: Box<dyn Fn(bool) + Send + Sync>,
+}
+
+impl InputChannel {
+    /// Must be connected before the offer is set, which announces the channel.
+    pub fn connect(
+        webrtc: &gst::Element,
+        session_id: &str,
+        set_stream_cursor: impl Fn(bool) + Send + Sync + 'static,
+    ) -> Arc<Self> {
+        let channel = Arc::new(Self {
+            session_id: session_id.to_owned(),
+            input: Mutex::new(InputState::new(platform::InputInjector::new())),
+            set_stream_cursor: Box::new(set_stream_cursor),
+        });
+        let input = channel.clone();
+        webrtc.connect("on-data-channel", false, move |values| {
+            if let Ok(data_channel) = values[1].get::<WebRTCDataChannel>() {
+                input.on_data_channel(&data_channel);
+            }
+            None
+        });
+        channel
+    }
+
+    fn on_data_channel(self: &Arc<Self>, data_channel: &WebRTCDataChannel) {
+        let label = data_channel.label().unwrap_or_default();
+        if label != "input" {
+            warn!(
+                "Session {}: ignoring data channel \"{label}\"",
+                self.session_id
+            );
+            return;
+        }
+        // webrtcbin owns the channel, and the handlers go with it.
+        let input = self.clone();
+        data_channel.connect_on_open(move |_| {
+            info!("Session {}: input channel open", input.session_id);
+        });
+        let input = self.clone();
+        data_channel.connect_on_close(move |_| input.closed("closed"));
+        let input = self.clone();
+        data_channel.connect_on_message_string(move |_, text| input.receive(text.unwrap_or("")));
+    }
+
+    // A bad message is logged and dropped, so a viewer can't make the agent fail.
+    fn receive(&self, text: &str) {
+        let mut input = self.input.lock().unwrap();
+        match apply(text, &mut input, &*self.set_stream_cursor) {
+            Ok(()) => {}
+            Err(Rejected::Unknown) => {
+                warn!("Session {}: unknown input message {text}", self.session_id);
+            }
+            Err(Rejected::Invalid(error)) => {
+                warn!(
+                    "Session {}: invalid input message {text}: {error}",
+                    self.session_id
+                );
+            }
+        }
+    }
+
+    /// Releases held input after the channel closed or failed, e.g. its SCTP association ended.
+    pub fn closed(&self, reason: &str) {
+        info!("Session {}: input channel {reason}", self.session_id);
+        self.release_all();
+    }
+
+    /// Releases held input. Call after the pipeline has stopped, so no more messages arrive.
+    pub fn release_all(&self) {
+        self.input.lock().unwrap().release_all();
+    }
+}
 
 /// One message. Numbers other than `x` and `y` must be integers.
 #[derive(Debug, PartialEq, Deserialize)]
@@ -33,6 +233,8 @@ pub enum InputMessage {
         down: bool,
     },
     /// Every finger on the stream; missing ids lift, or are canceled with `canceled`.
+    // Read once touch is applied.
+    #[allow(dead_code)]
     Touch {
         contacts: Vec<Contact>,
         #[serde(default)]
@@ -49,6 +251,7 @@ pub enum InputMessage {
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
+#[allow(dead_code)]
 pub struct Contact {
     pub id: i32,
     pub x: f64,
@@ -177,5 +380,196 @@ mod tests {
         for text in malformed {
             assert!(parse(text).is_err(), "{text}");
         }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Sent {
+        MoveTo(f64, f64),
+        MoveBy(i32, i32),
+        Button(MouseButton, bool),
+        Scroll(i32, i32),
+        Key(String, bool),
+    }
+
+    /// Records what would be injected. Knows every key code except "NotAKey".
+    #[derive(Default)]
+    struct Recorder(Vec<Sent>);
+
+    impl InputBackend for Recorder {
+        fn move_to(&mut self, x: f64, y: f64) {
+            self.0.push(Sent::MoveTo(x, y));
+        }
+        fn move_by(&mut self, dx: i32, dy: i32) {
+            self.0.push(Sent::MoveBy(dx, dy));
+        }
+        fn button(&mut self, button: MouseButton, down: bool) {
+            self.0.push(Sent::Button(button, down));
+        }
+        fn scroll(&mut self, dx: i32, dy: i32) {
+            self.0.push(Sent::Scroll(dx, dy));
+        }
+        fn key(&mut self, code: &str, down: bool) -> bool {
+            let known = code != "NotAKey";
+            if known {
+                self.0.push(Sent::Key(code.into(), down));
+            }
+            known
+        }
+    }
+
+    fn input() -> InputState<Recorder> {
+        InputState::new(Recorder::default())
+    }
+
+    // Applies the messages in order and returns what was sent.
+    fn receive(messages: &[&str]) -> Vec<Sent> {
+        let mut input = input();
+        for text in messages {
+            let _ = apply(text, &mut input, &|_| {});
+        }
+        input.backend.0
+    }
+
+    #[test]
+    fn applies_input_messages() {
+        let cases = [
+            (r#"{"type":"move","x":0.5,"y":0.5}"#, Sent::MoveTo(0.5, 0.5)),
+            (r#"{"type":"moveBy","dx":3,"dy":-2}"#, Sent::MoveBy(3, -2)),
+            (
+                r#"{"type":"button","button":0,"down":true}"#,
+                Sent::Button(MouseButton::Left, true),
+            ),
+            (r#"{"type":"wheel","dx":0,"dy":120}"#, Sent::Scroll(0, 120)),
+            (
+                r#"{"type":"key","code":"KeyA","down":true}"#,
+                Sent::Key("KeyA".into(), true),
+            ),
+        ];
+        for (text, sent) in cases {
+            assert_eq!(receive(&[text]), [sent], "{text}");
+        }
+    }
+
+    #[test]
+    fn release_all_releases_held_input() {
+        let sent = receive(&[
+            r#"{"type":"key","code":"ControlLeft","down":true}"#,
+            r#"{"type":"releaseAll"}"#,
+        ]);
+
+        assert_eq!(sent.last(), Some(&Sent::Key("ControlLeft".into(), false)));
+    }
+
+    #[test]
+    fn sets_the_stream_cursor() {
+        for visible in [true, false] {
+            let cursor = Mutex::new(Vec::new());
+            let text = format!(r#"{{"type":"cursor","visible":{visible}}}"#);
+            apply(&text, &mut input(), &|visible| {
+                cursor.lock().unwrap().push(visible)
+            })
+            .unwrap();
+
+            assert_eq!(cursor.into_inner().unwrap(), [visible]);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_types() {
+        let mut input = input();
+        let result = apply(r#"{"type":"scroll"}"#, &mut input, &|_| {});
+
+        assert!(matches!(result, Err(Rejected::Unknown)));
+        assert!(input.backend.0.is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_messages_and_keeps_applying_input() {
+        let mut input = input();
+        let rejected = apply(r#"{"type":"move","x":0.5}"#, &mut input, &|_| {});
+        apply(
+            r#"{"type":"button","button":0,"down":true}"#,
+            &mut input,
+            &|_| {},
+        )
+        .unwrap();
+
+        assert!(matches!(rejected, Err(Rejected::Invalid(_))));
+        assert_eq!(input.backend.0, [Sent::Button(MouseButton::Left, true)]);
+    }
+
+    #[test]
+    fn sends_a_button_up_only_for_a_held_button() {
+        let mut input = input();
+        input.button(0, false);
+        input.button(0, true);
+        input.button(0, false);
+        input.button(0, false);
+
+        assert_eq!(
+            input.backend.0,
+            [
+                Sent::Button(MouseButton::Left, true),
+                Sent::Button(MouseButton::Left, false)
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_buttons_other_than_left_middle_and_right() {
+        for button in [-1, 3] {
+            let mut input = input();
+            input.button(button, true);
+            input.release_all();
+
+            assert!(input.backend.0.is_empty(), "{button}");
+        }
+    }
+
+    #[test]
+    fn sends_repeated_key_downs_and_one_up() {
+        let mut input = input();
+        input.key("KeyA", true);
+        input.key("KeyA", true);
+        input.key("KeyA", false);
+        input.key("KeyA", false);
+
+        let down = || Sent::Key("KeyA".into(), true);
+        assert_eq!(
+            input.backend.0,
+            [down(), down(), Sent::Key("KeyA".into(), false)]
+        );
+    }
+
+    #[test]
+    fn ignores_unknown_key_codes() {
+        let mut input = input();
+        input.key("NotAKey", true);
+        input.release_all();
+
+        assert!(input.backend.0.is_empty());
+    }
+
+    #[test]
+    fn release_all_releases_everything_held_once() {
+        let mut input = input();
+        input.key("ShiftLeft", true);
+        input.button(2, true);
+        input.button(1, true);
+        input.button(1, false);
+        input.backend.0.clear();
+
+        input.release_all();
+        input.release_all();
+        input.key("ShiftLeft", false);
+        input.button(2, false);
+
+        assert_eq!(
+            input.backend.0,
+            [
+                Sent::Key("ShiftLeft".into(), false),
+                Sent::Button(MouseButton::Right, false)
+            ]
+        );
     }
 }

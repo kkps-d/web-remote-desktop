@@ -19,6 +19,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
+use crate::input::InputChannel;
 use crate::platform;
 use crate::sdp::{H264Codec, InvalidOffer};
 use crate::settings::{
@@ -124,6 +125,7 @@ pub struct StreamSession {
     stopped: AtomicBool,
     // Dropping the sender stops the connection monitor.
     stop_monitor: Mutex<Option<mpsc::Sender<()>>>,
+    input: Arc<InputChannel>,
 }
 
 impl StreamSession {
@@ -154,9 +156,18 @@ impl StreamSession {
         let encode_timing = Arc::new(EncodeTiming::default());
         encode_timing.attach(&encoder_bin.sink, &encoder_bin.src);
 
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let capture = by_name(&pipeline, "capture")?;
+        let capture_src = static_pad(&capture, "src")?;
+        // The viewer hides the stream cursor while it shows its own (absolute pointer mode).
+        let input = InputChannel::connect(&webrtc, &id, move |visible| {
+            platform::show_cursor(&capture, visible);
+        });
+
         let session = Arc::new(Self {
-            id: uuid::Uuid::new_v4().simple().to_string(),
-            capture_src: static_pad(&by_name(&pipeline, "capture")?, "src")?,
+            id,
+            input,
+            capture_src,
             output_src,
             parse_sink,
             encoder: Mutex::new(encoder_bin),
@@ -337,6 +348,7 @@ impl StreamSession {
         }
         self.stop_monitor.lock().unwrap().take();
         let _ = self.pipeline.set_state(gst::State::Null);
+        self.input.release_all();
     }
 
     fn answer(&self, offer_sdp: &str) -> Result<String, StartError> {
@@ -468,10 +480,8 @@ impl StreamSession {
             // SCTP carries the input channel; its association fails when the viewer closes the
             // connection. The video keeps going, and the connection monitor ends the session.
             gst::MessageView::Error(_) if source.starts_with("sctp") => {
-                info!(
-                    "Session {}: input channel failed: {source} association ended",
-                    self.id
-                );
+                self.input
+                    .closed(&format!("failed: {source} association ended"));
                 true
             }
             gst::MessageView::Warning(warning) => {

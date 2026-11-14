@@ -1,8 +1,9 @@
-//! Windows capture, encoders and display lookup.
+//! Windows capture, encoders, display lookup and input injection.
 
-// Used by the input backend in a later phase.
-#[allow(dead_code)]
+mod input;
 mod scan_codes;
+
+pub use input::{InputInjector, use_physical_pixels};
 
 use ::windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 use ::windows::core::PCWSTR;
@@ -14,6 +15,11 @@ use crate::settings::Resolution;
 
 /// Captures the primary monitor on the GPU, ready for the output capsfilter.
 pub const CAPTURE: &str = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert";
+
+/// Shows or hides the cursor in the capture named "capture" in `CAPTURE`, while streaming.
+pub fn show_cursor(capture: &gst::Element, visible: bool) {
+    capture.set_property("show-cursor", visible);
+}
 
 // d3d11convert scales to the output size, and the capture source captures at the output frame
 // rate. Changing these caps while playing renegotiates the pipeline; the encoder restarts with

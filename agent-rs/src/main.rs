@@ -1,9 +1,8 @@
 mod encode_timing;
 mod encoders;
-// Used from a later phase on; each allow goes once its module is fully used.
-#[allow(dead_code)]
 mod input;
 mod platform;
+// The Opus lookup is used once audio streams.
 #[allow(dead_code)]
 mod sdp;
 mod session;
@@ -54,6 +53,7 @@ async fn main() {
         eprintln!("Could not initialize GStreamer: {error}");
         std::process::exit(1);
     }
+    platform::use_physical_pixels();
     // Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
     let sessions = match EncoderCatalog::detect() {
         Ok(encoders) => ViewerSessions::new(encoders),
