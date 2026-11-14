@@ -9,6 +9,7 @@ import { StreamSettingsPicker } from "@/components/stream-settings-picker"
 import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { LEAVE_SHORTCUT } from "@/lib/keyboard-input"
+import { captureThumbnail, rememberDevice } from "@/lib/recent-devices"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -24,6 +25,9 @@ interface ViewerScreenProps {
 const statusLabels = { connecting: "Connecting…", connected: "Connected", reconnecting: "Reconnecting…" }
 
 const STATS_VISIBILITY_KEY = "statsVisibility"
+// The first capture waits a moment so the stream has settled past its first frames.
+const FIRST_THUMBNAIL_DELAY_MS = 2000
+const THUMBNAIL_INTERVAL_MS = 60_000
 
 interface StatsVisibility {
   basic: boolean
@@ -55,6 +59,29 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = connection?.stream ?? null
   }, [connection])
+
+  // Remember the device for the connect screen, refreshing its thumbnail so one survives a closed tab.
+  useEffect(() => {
+    const video = videoRef.current
+    if (!connected || !video) return
+    rememberDevice(address)
+    const saveThumbnail = () => rememberDevice(address, captureThumbnail(video))
+    let interval: ReturnType<typeof setInterval> | undefined
+    const firstCapture = setTimeout(() => {
+      saveThumbnail()
+      interval = setInterval(saveThumbnail, THUMBNAIL_INTERVAL_MS)
+    }, FIRST_THUMBNAIL_DELAY_MS)
+    return () => {
+      clearTimeout(firstCapture)
+      clearInterval(interval)
+    }
+  }, [connected, address])
+
+  function disconnect() {
+    // Store what the user last saw.
+    if (connected && videoRef.current) rememberDevice(address, captureThumbnail(videoRef.current))
+    onDisconnect()
+  }
 
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen()
@@ -92,7 +119,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
           {/* Icon-only on phones so the toolbar fits. */}
-          <Button variant="outline" className="max-sm:size-8 max-sm:px-0" onClick={onDisconnect}>
+          <Button variant="outline" className="max-sm:size-8 max-sm:px-0" onClick={disconnect}>
             <Unplug aria-hidden />
             <span className="max-sm:sr-only">Disconnect</span>
           </Button>

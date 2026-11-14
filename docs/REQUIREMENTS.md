@@ -57,6 +57,7 @@ Out of scope for now: Windows service, login screen/UAC capture, audio, multiple
 - Repo layout: `agent/` (C#), `client/` (React); `spikes/` kept for reference.
 - Client:
   - Connect form for the agent address, pre-filled with the last used address (localStorage).
+  - Recent devices below the form: up to 8 agents the client connected to, newest first, each with a screenshot thumbnail and last-connected time. Click to reconnect; forget removes one. Stored in localStorage; the thumbnail refreshes 2 s after connecting, every minute, and on disconnect.
   - Connection status: connecting, connected, failed (with the reason).
   - Stream view scaled to fit the window, keeping aspect ratio.
   - Fullscreen and Disconnect buttons.
