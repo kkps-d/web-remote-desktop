@@ -51,7 +51,7 @@ test("saved settings and recent devices work without storage", (t) => {
   blockStorage(t)
 
   assert.equal(readStreamSettings(), undefined)
-  assert.deepEqual(readInputSettings(), { mode: "absolute", rateHz: 125 })
+  assert.deepEqual(readInputSettings(), { mouse: "absolute", touch: "touchscreen", rateHz: 125 })
   assert.deepEqual(readRecentDevices(), [])
   assert.doesNotThrow(() => {
     saveStreamSettings({
@@ -59,7 +59,7 @@ test("saved settings and recent devices work without storage", (t) => {
       settings: { width: 1920, height: 1080, framerate: 60, bitrateKbps: 8000, encoder: "nvenc" },
       encoders: [],
     })
-    saveInputSettings({ mode: "relative", rateHz: 250 })
+    saveInputSettings({ mouse: "relative", touch: "trackpad", rateHz: 250 })
     rememberDevice("pc")
   })
   assert.deepEqual(forgetDevice("pc:8080"), [])

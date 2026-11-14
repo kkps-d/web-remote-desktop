@@ -18,7 +18,7 @@ interface RemoteInputOptions extends InputSettings {
  * Forwards mouse input on the video and keyboard input on the stage to the connection's input
  * channel. Returns the sender, for toolbar shortcuts.
  */
-export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard, mode, rateHz }: RemoteInputOptions) {
+export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard, mouse, touch, rateHz }: RemoteInputOptions) {
   const sender = useMemo(() => connection && createInputSender(connection.input), [connection])
 
   useEffect(() => {
@@ -41,22 +41,23 @@ export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard
     const video = videoRef.current
     if (!sender || !connection || !video) return
 
-    // The stream shows its own cursor only in relative mode, where the client's is hidden.
-    const sendCursor = () => sender.setStreamCursor(mode === "relative")
+    // The stream shows its own cursor when the client's isn't on the remote one: with a relative
+    // mouse (Pointer Lock hides the client's) or trackpad touch.
+    const sendCursor = () => sender.setStreamCursor(mouse === "relative" || touch === "trackpad")
     sendCursor()
     connection.input.addEventListener("open", sendCursor)
-    const detach = attachPointerInput(video, sender, mode)
+    const detach = attachPointerInput(video, sender, mouse, touch)
     return () => {
       connection.input.removeEventListener("open", sendCursor)
       detach()
       sender.releaseAll()
     }
-  }, [sender, connection, videoRef, mode])
+  }, [sender, connection, videoRef, mouse, touch])
 
   return sender
 }
 
-/** Pointer mode and send rate, remembered across visits. Defaults to absolute at 125 Hz. */
+/** Mouse mode, touch mode and send rate, remembered across visits. Defaults to absolute, touchscreen, 125 Hz. */
 export function useInputSettings() {
   const [settings, setSettings] = useState(readInputSettings)
 

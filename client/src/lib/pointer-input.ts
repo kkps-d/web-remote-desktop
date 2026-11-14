@@ -2,13 +2,19 @@
 
 import type { InputSender, MouseButton } from "@/lib/input-sender"
 // Relative so the node tests, which have no "@/" alias, can load this module.
-import { createTouchGestures } from "./touch-gestures.ts"
+import { createNativeTouch, createTouchGestures } from "./touch-gestures.ts"
 
 /**
  * Absolute sends positions on the video; relative sends movement under Pointer Lock and shows
  * the stream's own cursor instead of the client's.
  */
-export type PointerMode = "absolute" | "relative"
+export type MouseMode = "absolute" | "relative"
+
+/**
+ * Touchscreen injects real Windows touch. Direct and trackpad emulate a mouse: the finger is the
+ * pointer where it touches, or moves the cursor like a trackpad.
+ */
+export type TouchMode = "touchscreen" | "direct" | "trackpad"
 
 // Windows sends 120 units per wheel notch. Chromium reports one notch as 100 pixels and
 // Firefox in line mode as 3 lines.
@@ -53,17 +59,25 @@ export function toWheelUnits({ deltaX, deltaY, deltaMode }: Pick<WheelEvent, "de
   return { dx: deltaX * units, dy: deltaY * units }
 }
 
-/** Forwards mouse and touch input on the video in the given mode. Returns a function that detaches it. */
-export function attachPointerInput(video: HTMLVideoElement, sender: InputSender, mode: PointerMode): () => void {
+/** Forwards mouse and touch input on the video in the given modes. Returns a function that detaches it. */
+export function attachPointerInput(
+  video: HTMLVideoElement,
+  sender: InputSender,
+  mouse: MouseMode,
+  touchMode: TouchMode,
+): () => void {
   const isLocked = () => document.pointerLockElement === video
-  const touch = createTouchGestures(sender, mode, {
-    toFraction: (point, clamp) => toVideoFraction(point, video.getBoundingClientRect(), video, { clamp }),
-  })
+  const toFraction = (point: { clientX: number; clientY: number }, clamp: boolean) =>
+    toVideoFraction(point, video.getBoundingClientRect(), video, { clamp })
+  const touch =
+    touchMode === "touchscreen"
+      ? createNativeTouch(sender, { toFraction })
+      : createTouchGestures(sender, touchMode, { toFraction })
   const touchPoint = (event: PointerEvent) => ({ id: event.pointerId, clientX: event.clientX, clientY: event.clientY })
 
   // Relative input only flows while the pointer is locked to the video.
   function isActive(event: PointerEvent) {
-    return event.pointerType !== "touch" && (mode === "absolute" || isLocked())
+    return event.pointerType !== "touch" && (mouse === "absolute" || isLocked())
   }
 
   function sendPosition(event: PointerEvent) {
@@ -75,7 +89,7 @@ export function attachPointerInput(video: HTMLVideoElement, sender: InputSender,
   function onPointerMove(event: PointerEvent) {
     if (event.pointerType === "touch") return touch.move(touchPoint(event))
     if (!isActive(event)) return
-    if (mode === "relative") sender.moveBy(event.movementX, event.movementY)
+    if (mouse === "relative") sender.moveBy(event.movementX, event.movementY)
     else sendPosition(event)
 
     // Pressing or releasing a button while another is held fires pointermove, not pointerdown/up.
@@ -84,13 +98,13 @@ export function attachPointerInput(video: HTMLVideoElement, sender: InputSender,
 
   function onPointerDown(event: PointerEvent) {
     if (event.pointerType === "touch") return touch.down(touchPoint(event))
-    if (mode === "relative" && !isLocked()) {
+    if (mouse === "relative" && !isLocked()) {
       // This click only takes the lock; it isn't sent.
       requestPointerLock(video)
       return
     }
     if (!isMouseButton(event.button)) return
-    if (mode === "absolute") {
+    if (mouse === "absolute") {
       // Clicks on the letterbox bars aren't sent.
       const position = toVideoFraction(event, video.getBoundingClientRect(), video)
       if (!position) return
@@ -113,7 +127,7 @@ export function attachPointerInput(video: HTMLVideoElement, sender: InputSender,
   }
 
   function onWheel(event: WheelEvent) {
-    if (mode === "relative" && !isLocked()) return
+    if (mouse === "relative" && !isLocked()) return
     // Stops the page from scrolling or zooming (Ctrl is forwarded as a key).
     event.preventDefault()
     const { dx, dy } = toWheelUnits(event)
@@ -137,7 +151,7 @@ export function attachPointerInput(video: HTMLVideoElement, sender: InputSender,
   video.addEventListener("wheel", onWheel, { passive: false })
   video.addEventListener("mousedown", preventDefault)
   video.addEventListener("contextmenu", preventDefault)
-  if (mode === "relative") document.addEventListener("pointerlockchange", onPointerLockChange)
+  if (mouse === "relative") document.addEventListener("pointerlockchange", onPointerLockChange)
 
   return () => {
     video.removeEventListener("pointermove", onPointerMove)

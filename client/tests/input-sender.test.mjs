@@ -154,3 +154,54 @@ test("applies a new rate to later waits", () => {
   mock.timers.tick(1)
   assert.equal(channel.messages.length, 2)
 })
+
+test("sends a finger landing or lifting at once and merges moves into the latest frame", () => {
+  const { channel, sender } = setup(125)
+  sender.touch([{ id: 1, x: 0.1, y: 0.1 }])
+  sender.touch([{ id: 1, x: 0.2, y: 0.2 }])
+  sender.touch([{ id: 1, x: 0.3, y: 0.3 }])
+  assert.equal(channel.messages.length, 1)
+  // A second finger goes out at once, its frame replacing the pending move.
+  sender.touch([{ id: 1, x: 0.4, y: 0.4 }, { id: 2, x: 0.5, y: 0.5 }])
+  sender.touch([{ id: 2, x: 0.5, y: 0.5 }])
+  assert.deepEqual(channel.messages, [
+    { type: "touch", contacts: [{ id: 1, x: 0.1, y: 0.1 }] },
+    { type: "touch", contacts: [{ id: 1, x: 0.4, y: 0.4 }, { id: 2, x: 0.5, y: 0.5 }] },
+    { type: "touch", contacts: [{ id: 2, x: 0.5, y: 0.5 }] },
+  ])
+})
+
+test("a quick tap sends both its frames", () => {
+  const { channel, sender } = setup(125)
+  sender.touch([{ id: 1, x: 0.1, y: 0.1 }])
+  sender.touch([])
+  assert.deepEqual(channel.messages, [
+    { type: "touch", contacts: [{ id: 1, x: 0.1, y: 0.1 }] },
+    { type: "touch", contacts: [] },
+  ])
+})
+
+test("cancels touches only while fingers are down", () => {
+  const { channel, sender } = setup(125)
+  sender.touchCancel()
+  sender.touch([{ id: 1, x: 0.1, y: 0.1 }])
+  sender.touch([{ id: 1, x: 0.2, y: 0.2 }])
+  sender.touchCancel()
+  mock.timers.tick(100)
+  sender.touchCancel()
+  assert.deepEqual(channel.messages, [
+    { type: "touch", contacts: [{ id: 1, x: 0.1, y: 0.1 }] },
+    { type: "touch", contacts: [], canceled: true },
+  ])
+})
+
+test("releaseAll drops pending touch and forgets the fingers", () => {
+  const { channel, sender } = setup(125)
+  sender.touch([{ id: 1, x: 0.1, y: 0.1 }])
+  sender.touch([{ id: 1, x: 0.2, y: 0.2 }])
+  sender.releaseAll()
+  mock.timers.tick(100)
+  // The same finger after releaseAll lands again.
+  sender.touch([{ id: 1, x: 0.3, y: 0.3 }])
+  assert.deepEqual(channel.messages.slice(1), [{ type: "releaseAll" }, { type: "touch", contacts: [{ id: 1, x: 0.3, y: 0.3 }] }])
+})

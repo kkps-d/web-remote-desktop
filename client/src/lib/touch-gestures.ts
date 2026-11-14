@@ -1,8 +1,8 @@
-// Turns touches on the stream into mouse input: direct touch in absolute mode, a trackpad in
-// relative mode.
+// Turns touches on the stream into input: touchscreen forwards the fingers, direct and trackpad
+// emulate a mouse.
 
-import type { InputSender } from "@/lib/input-sender"
-import type { PointerMode } from "@/lib/pointer-input"
+import type { InputSender, TouchContact } from "@/lib/input-sender"
+import type { TouchMode } from "@/lib/pointer-input"
 
 /** A touch point in client (CSS) pixels. */
 export interface TouchPoint {
@@ -21,11 +21,11 @@ export interface TouchGestures {
 
 /** How far a finger may wander before a touch counts as a drag rather than a tap or hold. */
 export const TOUCH_SLOP_PX = 10
-/** Absolute mode: holding this long without moving right-clicks. */
+/** Direct: holding this long without moving right-clicks. */
 export const LONG_PRESS_MS = 500
-/** Relative mode: longest touch that still counts as a tap. */
+/** Trackpad: longest touch that still counts as a tap. */
 export const TAP_MAX_MS = 300
-/** Relative mode: how long a tap's click waits for a following touch (tap then drag, or a double tap). */
+/** Trackpad: how long a tap's click waits for a following touch (tap then drag, or a double tap). */
 export const TAP_WAIT_MS = 300
 
 // Scrolling moves the remote content about as far as the fingers, as with the browser's own
@@ -41,14 +41,14 @@ interface Options {
 }
 
 /**
- * Absolute: tap clicks where touched, a drag past the slop drags with the left button, a long
+ * Direct: tap clicks where touched, a drag past the slop drags with the left button, a long
  * press right-clicks, two fingers scroll.
- * Relative: one finger moves the cursor, a tap left-clicks after a short wait, tap then drag
+ * Trackpad: one finger moves the cursor, a tap left-clicks after a short wait, tap then drag
  * drags with the left button, a two-finger tap right-clicks, two fingers scroll.
  */
 export function createTouchGestures(
   sender: Sender,
-  mode: PointerMode,
+  mode: Exclude<TouchMode, "touchscreen">,
   { toFraction, now = () => performance.now() }: Options,
 ): TouchGestures {
   const touches = new Map<number, { x: number; y: number }>()
@@ -99,16 +99,16 @@ export function createTouchGestures(
     const position = { x: point.clientX, y: point.clientY }
 
     if (touches.size === 0) {
-      // Over the letterbox there's nothing to touch in absolute mode.
-      const fraction = mode === "absolute" ? toFraction(point, false) : null
-      if (mode === "absolute" && !fraction) return
+      // Over the letterbox there's nothing to touch in direct mode.
+      const fraction = mode === "direct" ? toFraction(point, false) : null
+      if (mode === "direct" && !fraction) return
 
       touches.set(point.id, position)
       startedAt = now()
       start = last = position
       moved = dragging = twoFinger = longPressed = false
 
-      if (mode === "absolute") {
+      if (mode === "direct") {
         sender.move(fraction!.x, fraction!.y)
         longPressTimer = setTimeout(() => {
           longPressed = true
@@ -145,7 +145,7 @@ export function createTouchGestures(
     const current = { x: point.clientX, y: point.clientY }
     const pastSlop = moved || distance(current, start) > TOUCH_SLOP_PX
 
-    if (mode === "absolute") {
+    if (mode === "direct") {
       if (longPressed || !pastSlop) return
       if (!moved) {
         // Press where the finger first landed, then follow it.
@@ -175,12 +175,12 @@ export function createTouchGestures(
     const quick = now() - startedAt <= TAP_MAX_MS
 
     if (twoFinger) {
-      if (mode === "relative" && !moved && quick) click(2)
+      if (mode === "trackpad" && !moved && quick) click(2)
       return
     }
     if (dragging) return endDrag()
 
-    if (mode === "absolute") {
+    if (mode === "direct") {
       if (!longPressed) click(0)
       return
     }
@@ -207,6 +207,38 @@ export function createTouchGestures(
   }
 
   return { down, move, up, cancel }
+}
+
+/**
+ * Touchscreen: forwards every finger to the agent, which injects real Windows touch. A finger
+ * landing on the letterbox is ignored; one dragged off the video pins to its edge.
+ */
+export function createNativeTouch(
+  sender: Pick<InputSender, "touch" | "touchCancel">,
+  { toFraction }: Pick<Options, "toFraction">,
+): TouchGestures {
+  const contacts = new Map<number, TouchContact>()
+
+  function place(point: TouchPoint, clamp: boolean) {
+    const fraction = toFraction(point, clamp)
+    if (!fraction) return
+    contacts.set(point.id, { id: point.id, ...fraction })
+    sender.touch([...contacts.values()])
+  }
+
+  return {
+    down: (point) => place(point, false),
+    move(point) {
+      if (contacts.has(point.id)) place(point, true)
+    },
+    up(point) {
+      if (contacts.delete(point.id)) sender.touch([...contacts.values()])
+    },
+    cancel() {
+      contacts.clear()
+      sender.touchCancel()
+    },
+  }
 }
 
 function distance(a: { x: number; y: number }, b: { x: number; y: number }) {

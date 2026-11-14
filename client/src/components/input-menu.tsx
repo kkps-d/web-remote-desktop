@@ -12,17 +12,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import type { PointerMode } from "@/lib/pointer-input"
+import type { MouseMode, TouchMode } from "@/lib/pointer-input"
 import { INPUT_RATES_HZ, type InputSettings } from "@/lib/saved-settings"
 
 interface InputMenuProps extends InputSettings {
   disabled: boolean
-  onModeChange: (mode: PointerMode) => void
+  onMouseChange: (mouse: MouseMode) => void
+  onTouchChange: (touch: TouchMode) => void
   onRateChange: (rateHz: number) => void
 }
 
-/** Toolbar menu for the pointer mode and how often pointer input is sent. */
-export function InputMenu({ mode, rateHz, disabled, onModeChange, onRateChange }: InputMenuProps) {
+/** Toolbar menu for the mouse and touch modes and how often pointer input is sent. */
+export function InputMenu({ mouse, touch, rateHz, disabled, onMouseChange, onTouchChange, onRateChange }: InputMenuProps) {
   return (
     <DropdownMenu>
       <Tooltip>
@@ -30,20 +31,29 @@ export function InputMenu({ mode, rateHz, disabled, onModeChange, onRateChange }
           render={
             <DropdownMenuTrigger
               disabled={disabled}
-              render={<Button variant="ghost" size="icon" aria-label="Mouse input" />}
+              render={<Button variant="ghost" size="icon" aria-label="Input" />}
             />
           }
         >
           <MousePointer2 aria-hidden />
         </TooltipTrigger>
-        <TooltipContent>Mouse input</TooltipContent>
+        <TooltipContent>Input</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-auto min-w-40">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>Pointer</DropdownMenuLabel>
-          <DropdownMenuRadioGroup value={mode} onValueChange={onModeChange}>
+          <DropdownMenuLabel>Mouse</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={mouse} onValueChange={onMouseChange}>
             <DropdownMenuRadioItem value="absolute">Absolute</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="relative">Relative</DropdownMenuRadioItem>
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Touch</DropdownMenuLabel>
+          <DropdownMenuRadioGroup value={touch} onValueChange={onTouchChange}>
+            <DropdownMenuRadioItem value="touchscreen">Touchscreen</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="direct">Direct</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="trackpad">Trackpad</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />

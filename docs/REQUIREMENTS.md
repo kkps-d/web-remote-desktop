@@ -86,13 +86,15 @@ Out of scope for now: Windows service, login screen/UAC capture, multiple monito
 ### v1 scope: input
 
 - Transport: one reliable, ordered `RTCDataChannel` named `input`, created by the client before the offer. The agent receives it via `webrtcbin`'s `on-data-channel` and injects input with `SendInput`.
-- Pointer modes, picked in the toolbar and remembered in the browser. Both work with mouse and touch.
+- Mouse modes, picked in the toolbar and remembered in the browser:
   - **Absolute** (default): the client sends positions as 0–1 fractions of the video's content area (letterbox excluded). The agent maps them to the captured monitor. The client cursor is shown; the stream cursor is hidden.
-  - **Relative**: the client sends movement deltas, applied to the remote cursor 1:1 in pixels, so sensitivity doesn't change when the stream is scaled down or letterboxed. The client cursor is hidden (Pointer Lock for mouse); the stream cursor is shown.
-  - Touch, absolute: tap clicks at the touch point, drag drags with the left button, long press right-clicks, two-finger drag scrolls.
-  - Touch, relative (trackpad): one-finger drag moves the cursor, tap left-clicks, two-finger tap right-clicks, two-finger drag scrolls, tap then drag drags with the left button.
+  - **Relative**: the client sends movement deltas, applied to the remote cursor 1:1 in pixels, so sensitivity doesn't change when the stream is scaled down or letterboxed. The client cursor is hidden (Pointer Lock); the stream cursor is shown.
+- Touch modes, picked in the toolbar and remembered in the browser, independent of the mouse mode:
+  - **Touchscreen** (default): the client sends every finger on the stream; the agent injects real Windows touch through a synthetic touch device (up to 10 contacts), so Windows handles pinch-zoom, inertia scrolling and press-and-hold. Fingers landing on the letterbox are ignored; drags off the video pin to its edge. Each contact carries an 8 px contact area; Windows accepts contacts without one but never delivers them. Held contacts are resent every 100 ms, since Windows lifts contacts that stop updating.
+  - **Direct** (mouse emulation): tap clicks at the touch point, drag drags with the left button, long press right-clicks, two-finger drag scrolls.
+  - **Trackpad** (mouse emulation): one-finger drag moves the cursor, tap left-clicks, two-finger tap right-clicks, two-finger drag scrolls, tap then drag drags with the left button. The stream cursor is shown, as with a relative mouse.
 - Mouse: left, right and middle buttons, and the wheel.
-- Rate: the client sends pointer moves and wheel scrolls at most at the picked rate: 125 (default), 250, 500 or 1000 Hz, picked in the toolbar and remembered in the browser. Over HTTP, browsers deliver moves only once per display frame, so rates above the refresh rate change nothing. The first move after a pause goes out at once; moves within the rest of that interval (8 ms at 125 Hz) are merged and sent when it ends (latest position in absolute mode, summed deltas in relative mode, summed wheel deltas). Buttons and keys go out at once, after any pending move, so they keep their order.
+- Rate: the client sends pointer moves, wheel scrolls and touch moves at most at the picked rate: 125 (default), 250, 500 or 1000 Hz, picked in the toolbar and remembered in the browser. Over HTTP, browsers deliver moves only once per display frame, so rates above the refresh rate change nothing. The first move after a pause goes out at once; moves within the rest of that interval (8 ms at 125 Hz) are merged and sent when it ends (latest position, summed relative deltas, summed wheel deltas, latest touch frame). Buttons, keys and fingers landing or lifting go out at once, after any pending move, so they keep their order.
 - Keyboard: the client sends `KeyboardEvent.code`; the agent injects scan codes, so the remote keyboard layout decides the characters.
 - Leaving the viewer: every key goes to the remote computer, Tab included, so Ctrl+Alt+Home (as in Remote Desktop) releases held keys, leaves fullscreen and Pointer Lock, and moves focus to the toolbar.
 - Browser-reserved shortcuts: the client stays on HTTP, so Keyboard Lock only works when it runs on `localhost` (in fullscreen). A toolbar dropdown sends them as buttons: Win, Alt+Tab, Alt+F4, Ctrl+W, Ctrl+Shift+Esc, Ctrl+Alt+Del.
@@ -110,7 +112,8 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 | `{type:"button", button, down}` | DOM button number: 0 left, 1 middle, 2 right |
 | `{type:"wheel", dx, dy}` | Scroll in Windows wheel units (120 per notch), positive right and down like DOM deltas |
 | `{type:"key", code, down}` | `KeyboardEvent.code`; unknown codes are ignored |
-| `{type:"releaseAll"}` | Release every held key and button |
+| `{type:"touch", contacts:[{id, x, y}], canceled?}` | Every finger on the stream (`pointerId`, 0–1 like `move`). The agent diffs it with the last frame: new ids land, missing ids lift, or are canceled with `canceled: true` |
+| `{type:"releaseAll"}` | Release every held key and button, and cancel touches |
 | `{type:"cursor", visible}` | Show or hide the cursor in the stream |
 
 - The agent maps absolute positions to pixel centers on the primary display. It applies relative moves to the cursor position and moves there absolutely, so Windows pointer acceleration never applies.

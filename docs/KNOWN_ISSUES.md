@@ -14,6 +14,7 @@
 
 - **Elevated windows ignore input.** Windows blocks injected input to elevated windows unless the agent also runs elevated (UIPI).
 - **The secure desktop is out of reach.** UAC prompts and the lock screen run on the secure desktop, which the agent can neither capture nor control.
+- **Touchscreen mode needs Windows 10 1809 or later.** Older versions lack synthetic pointer devices; the agent logs a warning and ignores touch frames. Switch Touch to Direct or Trackpad there.
 - **Esc exits relative mode.** Browsers end Pointer Lock on Esc, so Esc reaches the remote computer only while Keyboard Lock is active (`localhost` in fullscreen).
 - **Ctrl+Alt+Del can't be injected.** `SendInput` can't produce it. `SendSAS` can, but only from a service or with the "software SAS" policy enabled.
 

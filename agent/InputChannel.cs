@@ -5,7 +5,7 @@ namespace Agent;
 
 /// <summary>
 /// Receives the viewer's "input" data channel from webrtcbin and injects its messages. Held
-/// keys and buttons are released when the channel closes or the session ends.
+/// keys, buttons and touches are released when the channel closes or the session ends.
 /// </summary>
 sealed class InputChannel : IDisposable
 {
@@ -15,6 +15,7 @@ sealed class InputChannel : IDisposable
     delegate void StringHandler(IntPtr channel, IntPtr text, IntPtr userData);
 
     readonly InputInjector injector = new();
+    readonly TouchInjector touch = new();
     readonly Action<bool> setStreamCursor;
     readonly string sessionId;
     readonly ILogger logger;
@@ -42,6 +43,7 @@ sealed class InputChannel : IDisposable
     {
         logger.LogInformation("Session {Id}: input channel {Reason}", sessionId, reason);
         injector.ReleaseAll();
+        touch.CancelAll();
     }
 
     void OnDataChannel(IntPtr webrtc, IntPtr newChannel, IntPtr userData)
@@ -62,17 +64,18 @@ sealed class InputChannel : IDisposable
     }
 
     void OnMessage(IntPtr source, IntPtr textPtr, IntPtr userData) =>
-        Receive(Marshal.PtrToStringUTF8(textPtr) ?? "", injector, setStreamCursor, logger, sessionId);
+        Receive(Marshal.PtrToStringUTF8(textPtr) ?? "", injector, touch, setStreamCursor, logger, sessionId);
 
     /// <summary>
     /// Applies one message from the viewer, logging a bad message instead of throwing: GStreamer
     /// calls this from native code, where an escaping exception would end the agent.
     /// </summary>
-    internal static void Receive(string text, InputInjector injector, Action<bool> setStreamCursor, ILogger logger, string sessionId)
+    internal static void Receive(
+        string text, InputInjector injector, TouchInjector touch, Action<bool> setStreamCursor, ILogger logger, string sessionId)
     {
         try
         {
-            if (!Apply(text, injector, setStreamCursor))
+            if (!Apply(text, injector, touch, setStreamCursor))
                 logger.LogWarning("Session {Id}: unknown input message {Text}", sessionId, text);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
@@ -86,7 +89,7 @@ sealed class InputChannel : IDisposable
     }
 
     // Returns false for an unknown type; throws if the message is malformed.
-    static bool Apply(string text, InputInjector injector, Action<bool> setStreamCursor)
+    static bool Apply(string text, InputInjector injector, TouchInjector touch, Action<bool> setStreamCursor)
     {
         using var json = JsonDocument.Parse(text);
         var message = json.RootElement;
@@ -108,8 +111,15 @@ sealed class InputChannel : IDisposable
                 var code = message.GetProperty("code").GetString() ?? throw new FormatException("The key code is null.");
                 injector.Key(code, message.GetProperty("down").GetBoolean());
                 return true;
+            case "touch":
+                var contacts = message.GetProperty("contacts").EnumerateArray()
+                    .Select(contact => (contact.GetProperty("id").GetInt32(), contact.GetProperty("x").GetDouble(), contact.GetProperty("y").GetDouble()))
+                    .ToList();
+                touch.Update(contacts, message.TryGetProperty("canceled", out var canceled) && canceled.GetBoolean());
+                return true;
             case "releaseAll":
                 injector.ReleaseAll();
+                touch.CancelAll();
                 return true;
             case "cursor":
                 setStreamCursor(message.GetProperty("visible").GetBoolean());
@@ -120,7 +130,11 @@ sealed class InputChannel : IDisposable
     }
 
     /// <summary>Call after the pipeline has stopped, so no more messages arrive.</summary>
-    public void Dispose() => injector.ReleaseAll();
+    public void Dispose()
+    {
+        injector.ReleaseAll();
+        touch.Dispose();
+    }
 
     [DllImport("gobject-2.0-0.dll")]
     static extern ulong g_signal_connect_data(IntPtr instance, string signal, Delegate handler, IntPtr data, IntPtr destroy, int flags);

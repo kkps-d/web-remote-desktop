@@ -65,11 +65,27 @@ test("ignores missing or malformed stream settings", () => {
 })
 
 test("parses saved input settings", () => {
-  assert.deepEqual(parseInputSettings('{"mode":"relative","rateHz":500}'), { mode: "relative", rateHz: 500 })
+  assert.deepEqual(parseInputSettings('{"mouse":"relative","touch":"trackpad","rateHz":500}'), {
+    mouse: "relative",
+    touch: "trackpad",
+    rateHz: 500,
+  })
 })
 
-test("falls back to absolute mode at 125 Hz for missing or unsupported input settings", () => {
-  for (const raw of [null, "not json", '{"mode":"touch","rateHz":500}', '{"mode":"relative","rateHz":60}', '{"mode":"relative"}']) {
-    assert.deepEqual(parseInputSettings(raw), { mode: "absolute", rateHz: 125 }, String(raw))
+test("keeps the mouse mode and rate of settings saved before the touch option", () => {
+  assert.deepEqual(parseInputSettings('{"mode":"relative","rateHz":500}'), { mouse: "relative", touch: "touchscreen", rateHz: 500 })
+})
+
+test("falls back to touchscreen for an unknown touch mode", () => {
+  assert.deepEqual(parseInputSettings('{"mouse":"relative","touch":"native","rateHz":500}'), {
+    mouse: "relative",
+    touch: "touchscreen",
+    rateHz: 500,
+  })
+})
+
+test("falls back to an absolute mouse, touchscreen at 125 Hz for missing or unsupported input settings", () => {
+  for (const raw of [null, "not json", '{"mouse":"touch","rateHz":500}', '{"mouse":"relative","rateHz":60}', '{"mouse":"relative"}']) {
+    assert.deepEqual(parseInputSettings(raw), { mouse: "absolute", touch: "touchscreen", rateHz: 125 }, String(raw))
   }
 })

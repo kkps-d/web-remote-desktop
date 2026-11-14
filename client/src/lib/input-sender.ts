@@ -1,7 +1,14 @@
-// Sends mouse and keyboard input to the agent as JSON strings over the "input" data channel.
+// Sends mouse, touch and keyboard input to the agent as JSON strings over the "input" data channel.
 
 /** DOM button numbers: left, middle, right. */
 export type MouseButton = 0 | 1 | 2
+
+/** A finger on the stream: its `pointerId` and position as 0–1 fractions of the video content area. */
+export interface TouchContact {
+  id: number
+  x: number
+  y: number
+}
 
 export type InputMessage =
   /** Absolute position as 0–1 fractions of the video content area (letterbox excluded). */
@@ -13,6 +20,11 @@ export type InputMessage =
   | { type: "wheel"; dx: number; dy: number }
   /** `KeyboardEvent.code`; the agent maps it to a scan code. */
   | { type: "key"; code: string; down: boolean }
+  /**
+   * Every finger now on the stream, for native touch; the agent diffs it against the previous
+   * frame. Empty lifts them all, or cancels them with `canceled`.
+   */
+  | { type: "touch"; contacts: TouchContact[]; canceled?: true }
   | { type: "releaseAll" }
   /** Shows or hides the cursor drawn into the stream. */
   | { type: "cursor"; visible: boolean }
@@ -31,7 +43,11 @@ export interface InputSender {
   wheel(dx: number, dy: number): void
   button(button: MouseButton, down: boolean): void
   key(code: string, down: boolean): void
-  /** Releases every held key and button on the agent. */
+  /** Sends every finger now on the stream (see the `touch` message). */
+  touch(contacts: TouchContact[]): void
+  /** Ends every finger without lifting it, e.g. when the browser cancels the touches. */
+  touchCancel(): void
+  /** Releases every held key, button and finger on the agent. */
   releaseAll(): void
   setStreamCursor(visible: boolean): void
   /** Drops pending pointer input and stops its timer. */
@@ -39,11 +55,11 @@ export interface InputSender {
 }
 
 /**
- * Wraps the input channel with a leading + trailing rate limit for pointer input: the first move
- * or wheel after a pause goes out at once; later ones within the interval are merged (latest
- * position, summed deltas) and sent when it ends. Buttons and keys go out at once, after any
- * pending pointer input, so everything keeps its order. Messages are dropped while the channel
- * isn't open.
+ * Wraps the input channel with a leading + trailing rate limit for pointer input: the first move,
+ * wheel or touch move after a pause goes out at once; later ones within the interval are merged
+ * (latest position or touch frame, summed deltas) and sent when it ends. Buttons, keys and
+ * fingers landing or lifting go out at once, after any pending pointer input, so everything keeps
+ * its order. Messages are dropped while the channel isn't open.
  */
 export function createInputSender(
   channel: InputChannel,
@@ -56,6 +72,9 @@ export function createInputSender(
   // Fractional parts stay pending, so slow, fine movement and smooth scrolling still add up.
   const pendingDelta = { x: 0, y: 0 }
   const pendingWheel = { x: 0, y: 0 }
+  let pendingTouch: TouchContact[] | null = null
+  // Ids of the fingers the agent last heard about.
+  let sentTouchIds = new Set<number>()
   let lastSentAt = -Infinity
   let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -86,6 +105,10 @@ export function createInputSender(
     if (dx || dy) sent = send({ type: "moveBy", dx, dy }) || sent
     const [wheelX, wheelY] = takeWhole(pendingWheel)
     if (wheelX || wheelY) sent = send({ type: "wheel", dx: wheelX, dy: wheelY }) || sent
+    if (pendingTouch) {
+      sent = send({ type: "touch", contacts: pendingTouch }) || sent
+      pendingTouch = null
+    }
 
     if (sent) lastSentAt = now()
   }
@@ -121,10 +144,28 @@ export function createInputSender(
       if (send({ type: "key", code, down }) && down) heldKeys.add(code)
       else heldKeys.delete(code)
     },
+    touch(contacts) {
+      const ids = new Set(contacts.map((contact) => contact.id))
+      pendingTouch = contacts
+      // A finger landing or lifting can't be merged away (a quick tap would vanish).
+      if (ids.size !== sentTouchIds.size || [...ids].some((id) => !sentTouchIds.has(id))) {
+        flushPointer()
+        sentTouchIds = ids
+      } else queuePointer()
+    },
+    touchCancel() {
+      pendingTouch = null
+      if (sentTouchIds.size === 0) return
+      flushPointer()
+      sentTouchIds = new Set()
+      send({ type: "touch", contacts: [], canceled: true })
+    },
     releaseAll() {
+      pendingTouch = null
       flushPointer()
       heldKeys.clear()
       heldButtons.clear()
+      sentTouchIds = new Set()
       send({ type: "releaseAll" })
     },
     setStreamCursor(visible) {
@@ -134,6 +175,7 @@ export function createInputSender(
       clearTimeout(timer)
       timer = undefined
       pendingPosition = null
+      pendingTouch = null
       pendingDelta.x = pendingDelta.y = pendingWheel.x = pendingWheel.y = 0
     },
   }

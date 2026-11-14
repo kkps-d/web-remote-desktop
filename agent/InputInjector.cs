@@ -28,8 +28,14 @@ sealed class InputInjector
     public void MoveTo(double x, double y)
     {
         var (width, height) = DisplaySize();
-        MoveToPixel((int)(Math.Clamp(x, 0, 1) * width), (int)(Math.Clamp(y, 0, 1) * height), width, height);
+        var pixel = ToPixel(x, y, width, height);
+        MoveToPixel(pixel.X, pixel.Y, width, height);
     }
+
+    /// <summary>The pixel at a position given as 0–1 fractions of a display, clamped to it.</summary>
+    internal static (int X, int Y) ToPixel(double x, double y, int width, int height) =>
+        (Math.Clamp((int)(Math.Clamp(x, 0, 1) * width), 0, width - 1),
+         Math.Clamp((int)(Math.Clamp(y, 0, 1) * height), 0, height - 1));
 
     /// <summary>
     /// Moves by whole pixels. Relative SendInput moves go through Windows pointer acceleration,
@@ -89,7 +95,7 @@ sealed class InputInjector
     }
 
     // The process is per-monitor DPI aware (see Program), so this is the primary display in physical pixels.
-    static (int Width, int Height) DisplaySize() => (GetSystemMetrics(ScreenWidth), GetSystemMetrics(ScreenHeight));
+    internal static (int Width, int Height) DisplaySize() => (GetSystemMetrics(ScreenWidth), GetSystemMetrics(ScreenHeight));
 
     void MoveToPixel(int x, int y, int width, int height)
     {

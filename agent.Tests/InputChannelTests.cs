@@ -8,12 +8,20 @@ public class InputChannelTests
     readonly List<InputInjector.Input> sent = [];
     readonly List<bool> cursor = [];
     readonly ListLogger logger = new();
+    readonly List<TouchInjector.PointerTypeInfo[]> touchFrames = [];
     readonly InputInjector injector;
+    readonly TouchInjector touch;
 
-    public InputChannelTests() => injector = new InputInjector(sent.Add);
+    public InputChannelTests()
+    {
+        injector = new InputInjector(sent.Add);
+        touch = new TouchInjector(touchFrames.Add, () => (1920, 1080), Timeout.InfiniteTimeSpan);
+    }
 
     void Receive(string text, Action<bool>? setStreamCursor = null) =>
-        InputChannel.Receive(text, injector, setStreamCursor ?? cursor.Add, logger, "session");
+        InputChannel.Receive(text, injector, touch, setStreamCursor ?? cursor.Add, logger, "session");
+
+    IEnumerable<uint> TouchFlags(int frame) => touchFrames[frame].Select(info => info.Touch.PointerInfo.PointerFlags);
 
     [Theory]
     [InlineData("""{"type":"button","button":0,"down":true}""", 0u, 0x0002u)]
@@ -47,6 +55,29 @@ public class InputChannelTests
         Receive("""{"type":"releaseAll"}""");
 
         Assert.Equal(0x0008u | 0x0002u, sent[^1].Data.Keyboard.Flags);
+    }
+
+    [Fact]
+    public void AppliesTouchFrames()
+    {
+        Receive("""{"type":"touch","contacts":[{"id":3,"x":0.5,"y":0.25},{"id":4,"x":1,"y":1}]}""");
+        Receive("""{"type":"touch","contacts":[],"canceled":true}""");
+
+        var pointer = touchFrames[0][0].Touch.PointerInfo;
+        Assert.Equal((960, 270), (pointer.PixelLocation.X, pointer.PixelLocation.Y));
+        Assert.Equal([0x10006u, 0x10006u], TouchFlags(0));
+        Assert.Equal([0x48000u, 0x48000u], TouchFlags(1));
+        Assert.Empty(sent);
+        Assert.Empty(logger.Entries);
+    }
+
+    [Fact]
+    public void ReleaseAllCancelsTouches()
+    {
+        Receive("""{"type":"touch","contacts":[{"id":1,"x":0.5,"y":0.5}]}""");
+        Receive("""{"type":"releaseAll"}""");
+
+        Assert.Equal([0x48000u], TouchFlags(1));
     }
 
     [Theory]
@@ -85,6 +116,11 @@ public class InputChannelTests
     [InlineData("""{"type":"button","button":0,"down":"yes"}""")]
     [InlineData("""{"type":"key","code":null,"down":true}""")]
     [InlineData("""{"type":"cursor","visible":1}""")]
+    [InlineData("""{"type":"touch"}""")]
+    [InlineData("""{"type":"touch","contacts":{}}""")]
+    [InlineData("""{"type":"touch","contacts":[{"id":1,"x":"left","y":0.5}]}""")]
+    [InlineData("""{"type":"touch","contacts":[{"id":1.5,"x":0.5,"y":0.5}]}""")]
+    [InlineData("""{"type":"touch","contacts":[],"canceled":"yes"}""")]
     public void WarnsAboutMalformedMessagesAndKeepsApplyingInput(string text)
     {
         Receive(text);

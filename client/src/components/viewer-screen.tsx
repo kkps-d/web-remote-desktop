@@ -97,10 +97,12 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
 
         <div ref={toolbarRef} className="ml-auto flex items-center gap-1">
           <InputMenu
-            mode={inputSettings.mode}
+            mouse={inputSettings.mouse}
+            touch={inputSettings.touch}
             rateHz={inputSettings.rateHz}
             disabled={!connected}
-            onModeChange={(mode) => setInputSettings((current) => ({ ...current, mode }))}
+            onMouseChange={(mouse) => setInputSettings((current) => ({ ...current, mouse }))}
+            onTouchChange={(touch) => setInputSettings((current) => ({ ...current, touch }))}
             onRateChange={(rateHz) => setInputSettings((current) => ({ ...current, rateHz }))}
           />
           <ShortcutsMenu sender={inputSender} disabled={!connected} />

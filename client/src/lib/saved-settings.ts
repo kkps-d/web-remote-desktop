@@ -1,7 +1,7 @@
 // Stream and input settings remembered across visits.
 
 import { scaleToHeight, type StreamInfo, type StreamSettings } from "./agent-connection.ts"
-import type { PointerMode } from "./pointer-input.ts"
+import type { MouseMode, TouchMode } from "./pointer-input.ts"
 import { readStorage, writeStorage } from "./storage.ts"
 
 const STREAM_SETTINGS_KEY = "streamSettings"
@@ -19,7 +19,8 @@ export interface SavedStreamSettings {
 }
 
 export interface InputSettings {
-  mode: PointerMode
+  mouse: MouseMode
+  touch: TouchMode
   rateHz: number
 }
 
@@ -63,16 +64,23 @@ export function resolveSavedSettings(saved: SavedStreamSettings, { source, encod
   }
 }
 
-/** Saved input settings, or absolute mode at 125 Hz if there are none or they're malformed. */
+const TOUCH_MODES: TouchMode[] = ["touchscreen", "direct", "trackpad"]
+
+/**
+ * Saved input settings, or an absolute mouse and touchscreen touch at 125 Hz if there are none or
+ * they're malformed. Settings saved before the touch option (mouse mode saved as `mode`) keep
+ * their mouse mode and rate and get touchscreen touch.
+ */
 export function parseInputSettings(raw: string | null): InputSettings {
   try {
     const saved = JSON.parse(raw ?? "null")
-    if ((saved?.mode === "absolute" || saved?.mode === "relative") && INPUT_RATES_HZ.includes(saved?.rateHz))
-      return { mode: saved.mode, rateHz: saved.rateHz }
+    const mouse = saved?.mouse ?? saved?.mode
+    if ((mouse === "absolute" || mouse === "relative") && INPUT_RATES_HZ.includes(saved?.rateHz))
+      return { mouse, touch: TOUCH_MODES.includes(saved.touch) ? saved.touch : "touchscreen", rateHz: saved.rateHz }
   } catch {
     // A malformed saved value falls back to the defaults.
   }
-  return { mode: "absolute", rateHz: 125 }
+  return { mouse: "absolute", touch: "touchscreen", rateHz: 125 }
 }
 
 export function readStreamSettings() {
