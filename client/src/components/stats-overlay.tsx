@@ -74,9 +74,10 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
   }
 
   return (
-    <div className="absolute top-2 left-2 max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] overflow-y-auto overscroll-contain rounded-md bg-black/70 px-3 py-2 font-mono text-xs text-white">
+    // Ignores the pointer so clicks and scrolls reach the remote desktop beneath.
+    <div className="pointer-events-none absolute top-2 left-2 max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] overflow-hidden rounded-md bg-black/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-snug text-white">
       {basic && <StatsSection title="Basic" stats={basicStats} values={values} />}
-      {basic && advanced && <div className="my-2 border-t border-white/15" />}
+      {basic && advanced && <div className="my-1.5 border-t border-white/15" />}
       {advanced && <StatsSection title="Advanced" stats={advancedStats} values={values} />}
     </div>
   )
@@ -90,10 +91,10 @@ interface StatsSectionProps {
 
 function StatsSection({ title, stats, values }: StatsSectionProps) {
   return (
-    <dl aria-label={`${title} statistics`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+    <dl aria-label={`${title} statistics`} className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
       {stats.map(({ name }) => (
         <div key={name} className="contents">
-          <dt className="text-white/60">{name}</dt>
+          <dt className="text-white/70">{name}</dt>
           <dd className="break-words text-right tabular-nums">{values[name]}</dd>
         </div>
       ))}
