@@ -105,7 +105,14 @@ sealed class StreamSession : IDisposable
     /// <summary>Starts streaming and answers the offer. Blocks for up to a few seconds.</summary>
     public static StreamSession Start(string offerSdp, H264Codec codec, EncoderCatalog encoders, ILogger logger)
     {
-        var session = new StreamSession(codec, FindOpusPayloadType(offerSdp), encoders, logger);
+        var opusPayloadType = FindOpusPayloadType(offerSdp);
+        // Process loopback needs Windows build 20348 or later; older builds stream video only.
+        if (opusPayloadType is not null && !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 20348))
+        {
+            logger.LogWarning("Streaming without audio: process loopback needs Windows build 20348 or later.");
+            opusPayloadType = null;
+        }
+        var session = new StreamSession(codec, opusPayloadType, encoders, logger);
         try
         {
             var bus = Native.GetBus(session.pipeline);
@@ -140,20 +147,22 @@ sealed class StreamSession : IDisposable
         "webrtcbin name=webrtc bundle-policy=max-bundle" +
         (opusPayloadType is { } pt ? "  " + AudioDescription(pt) : "");
 
-    // SPIKE: captures every app's audio but the agent's, linked after the video so it gets
-    // webrtcbin's sink_1 and matches the offer's audio m-line. Process loopback keeps working when
-    // the output device switches; default-device loopback stops. The source would otherwise
-    // provide the pipeline clock, which stalls (and freezes the video) on a switch.
+    // Captures every app's audio except the agent's (process loopback). Unlike loopback of the
+    // default device, it keeps working when the output device switches, at about 40 ms more
+    // latency; see REQUIREMENTS.md. Linked after the video, so it gets webrtcbin's sink_1 and
+    // matches the offer's audio m-line. Without provide-clock=false the source would be the
+    // pipeline clock, which stalls on a device switch and freezes the video too.
     static string AudioDescription(int payloadType) =>
-        "wasapi2src name=audio loopback=true low-latency=true provide-clock=false continue-on-error=true " +
-        $"loopback-mode=exclude-process-tree loopback-target-pid={Environment.ProcessId} ! " +
-        "audioconvert ! audioresample ! " +
-        "audio/x-raw,rate=48000,channels=2 ! opusenc name=opus bitrate=128000 frame-size=10 ! " +
+        "wasapi2src loopback=true loopback-mode=exclude-process-tree " +
+        $"loopback-target-pid={Environment.ProcessId} low-latency=true provide-clock=false continue-on-error=true ! " +
+        "audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! " +
+        "opusenc bitrate=128000 frame-size=10 ! " +
         $"rtpopuspay pt={payloadType} ! webrtc.";
 
     /// <summary>The browser's Opus payload type, or null if the offer has no audio.</summary>
     public static int? FindOpusPayloadType(string offerSdp) =>
-        Regex.Match(offerSdp, @"a=rtpmap:(\d+) opus/48000/2") is { Success: true } match
+        // Encoding names are case-insensitive (RFC 4566).
+        Regex.Match(offerSdp, @"a=rtpmap:(\d+) opus/48000/2", RegexOptions.IgnoreCase) is { Success: true } match
             ? int.Parse(match.Groups[1].Value)
             : null;
 
