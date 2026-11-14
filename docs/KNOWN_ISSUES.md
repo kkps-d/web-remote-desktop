@@ -10,6 +10,12 @@
 - **Media Foundation can break NVENC until the agent restarts.** After NVENC has run, using a Media Foundation encoder in the same process makes later NVENC sessions fail with `NV_ENC_ERR_INVALID_VERSION`. Reproduced with GStreamer 1.28.8 and NVIDIA driver 610.88. The agent disables the hardware and software Media Foundation encoders when NVENC is available.
 - **AMF was slow on the tested Radeon iGPU.** It took about 17 ms per frame at 1080p60, close to the full frame budget. Performance on a discrete Radeon card remains unverified. See the [encoder benchmarks](ENCODERS.md#results).
 
+## Input
+
+- **Elevated windows ignore input.** Windows blocks injected input to elevated windows unless the agent also runs elevated (UIPI).
+- **The secure desktop is out of reach.** UAC prompts and the lock screen run on the secure desktop, which the agent can neither capture nor control.
+- **Ctrl+Alt+Del can't be injected.** `SendInput` can't produce it. `SendSAS` can, but only from a service or with the "software SAS" policy enabled.
+
 ## Plain HTTP
 
 - **HTTP limits signaling and browser APIs.** Network peers can tamper with unencrypted signaling. Browsers block requests from an HTTPS client page to a remote HTTP agent. Secure-context APIs such as clipboard and Keyboard Lock require a trustworthy origin, such as `localhost` during HTTP development.

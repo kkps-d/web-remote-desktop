@@ -50,6 +50,7 @@ Out of scope for now: Windows service, login screen/UAC capture, audio, multiple
 - **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
 - **v1:** v0.5 plus mouse and keyboard input over the data channel.
 - **v2.0:** reach agents over the internet through the orchprox.
+- **v3.0:** authentication: clients log in, and agents register with the orchprox using a secret.
 
 ### v0.5 scope
 
@@ -79,6 +80,48 @@ Out of scope for now: Windows service, login screen/UAC capture, audio, multiple
 - Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.
 - Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and the encoder picks up a new `bitrate` on the next frame. Switching encoder blocks the capsfilter's output for one frame and swaps the encoder bin; the new encoder starts with a keyframe.
 
+### v1 scope: input
+
+- Transport: one reliable, ordered `RTCDataChannel` named `input`, created by the client before the offer. The agent receives it via `webrtcbin`'s `on-data-channel` and injects input with `SendInput`.
+- Pointer modes, picked in the toolbar and remembered in the browser. Both work with mouse and touch.
+  - **Absolute** (default): the client sends positions as 0–1 fractions of the video's content area (letterbox excluded). The agent maps them to the captured monitor. The client cursor is shown; the stream cursor is hidden.
+  - **Relative**: the client sends movement deltas, applied to the remote cursor 1:1 in pixels, so sensitivity doesn't change when the stream is scaled down or letterboxed. The client cursor is hidden (Pointer Lock for mouse); the stream cursor is shown.
+  - Touch, absolute: tap clicks at the touch point, drag drags with the left button, long press right-clicks, two-finger drag scrolls.
+  - Touch, relative (trackpad): one-finger drag moves the cursor, tap left-clicks, two-finger tap right-clicks, two-finger drag scrolls, tap then drag drags with the left button.
+- Mouse: left, right and middle buttons, and the wheel.
+- Rate: the client sends pointer moves and wheel scrolls at most at the picked rate: 125 (default), 250, 500 or 1000 Hz, picked in the toolbar and remembered in the browser. Over HTTP, browsers deliver moves only once per display frame, so rates above the refresh rate change nothing. The first move after a pause goes out at once; moves within the rest of that interval (8 ms at 125 Hz) are merged and sent when it ends (latest position in absolute mode, summed deltas in relative mode, summed wheel deltas). Buttons and keys go out at once, after any pending move, so they keep their order.
+- Keyboard: the client sends `KeyboardEvent.code`; the agent injects scan codes, so the remote keyboard layout decides the characters.
+- Browser-reserved shortcuts: the client stays on HTTP, so Keyboard Lock only works when it runs on `localhost` (in fullscreen). A toolbar dropdown sends them as buttons: Win, Alt+Tab, Alt+F4, Ctrl+W, Ctrl+Shift+Esc, Ctrl+Alt+Del.
+- Stuck keys: the client releases every held key and button when the window loses focus, the tab is hidden, or it disconnects. The agent releases them when the data channel closes or the session ends.
+- Out of scope for v1: auth (v3.0), HTTPS, clipboard, audio. See [input limitations](KNOWN_ISSUES.md#input).
+
+#### Data channel spike results (branch `spike/data-channel`)
+
+`webrtcbin` data channels work from C#. Tested on localhost with a 2560×1440 display at 100% scaling:
+
+- The bindings have no `GstWebRTCDataChannel` wrapper, so the agent connects `on-data-channel`, `on-open`, `on-close` and `on-message-string` with `g_signal_connect_data` and replies with `gst_webrtc_data_channel_send_string` (P/Invoke). Connect `on-data-channel` before setting the remote description.
+- Round trip (ping echo): 0.6 ms median. A burst of 2,000 JSON messages, each injected with `SendInput`, was handled in about 100 ms.
+- Absolute and relative moves landed on the exact pixel. Relative moves skip acceleration only because "Enhance pointer precision" was off; to keep 1:1 movement with it on, the agent should apply deltas to the current cursor position and move absolutely.
+- `show-cursor` on `d3d11screencapturesrc` can be toggled while streaming.
+- Closing the peer connection makes `sctpenc` post a pipeline error ("SCTP association went into error state"), which ends the session as a failure. v1 should treat it as the channel closing.
+- Rate caps, fed 2,000 synthetic moves/s for 5 s (agent CPU is % of one core; capture and encode alone: 2.2%):
+
+  | Cap | Sent/s (abs / rel) | Agent CPU (abs / rel) |
+  | --- | --- | --- |
+  | 125 Hz | 120 / 120 | 6.0% / 9.3% |
+  | 250 Hz | 230 / 234 | 6.9% / 8.8% |
+  | 500 Hz | 427 / 429 | 14.0% / 14.5% |
+  | 1000 Hz | 748 / 762 | 17.0% / 11.8% |
+  | None | 2,000 / 1,392 | 41.4% / 14.8% |
+
+  - The agent takes 120–180 µs per real move, mostly `SendInput`.
+  - Ping round trips stayed at 0.3 ms median, 0.7 ms p95 or less, at every rate.
+  - Merging lost nothing: relative circles ended on the same pixel at every cap.
+  - Browser timers can't wait less than about 1 ms, so the 500 and 1000 Hz caps fall short.
+- Over plain HTTP from a LAN address, Chrome lacks `pointerrawupdate` and `getCoalescedEvents` (secure context only). `pointermove` then arrives once per display frame, so a real mouse sends at most the display's refresh rate.
+- Absolute moves can land 1 px off (1480 → 1479); map fractions to pixel centers.
+- Not tested: button clicks (to avoid clicking on the live desktop), keyboard, touch, Pointer Lock, display scaling other than 100%.
+
 ### v2.0 scope: orchprox
 
 A server on a VPS with a public IP that coordinates the handshake and relays all traffic between clients and agents, so agents behind CGNAT are reachable and clients never learn an agent's IP. Feasibility checked, nothing built yet.
@@ -86,7 +129,7 @@ A server on a VPS with a public IP that coordinates the handshake and relays all
 - Control (HTTP signaling, settings, stats, end session): the agent opens a long-lived outbound connection (e.g. WebSocket) to the orchprox, configured manually on the agent. The orchprox forwards client requests for an agent down that connection. Custom code, but mostly request forwarding.
 - Video and input (WebRTC): relayed by a standard TURN server (e.g. coturn) on the same VPS, not by custom code. Both ends get the TURN server in their ICE config (`webrtcbin` on the agent); the client forces relay with `iceTransportPolicy: "relay"`. The existing one-request signaling stays the same.
 - Client: the address becomes orchprox + agent ID instead of an IP.
-- Security: agents register with a secret, clients log in, HTTPS on the orchprox (needs a domain), short-lived TURN credentials issued per session.
+- Security: HTTPS on the orchprox (needs a domain), short-lived TURN credentials issued per session. Auth comes in v3.0.
 - TURN over TLS on port 443 as a fallback for networks that block UDP.
 - Costs: every stream crosses the VPS twice (about 9 GB each way per hour at 20 Mbps), so check the VPS transfer limits. The extra hop adds latency; pick a VPS region close to the usual users and agents.
 - **TBD:** always relay (simple, predictable) or try a direct connection first to save VPS bandwidth. Direct often fails when both ends are behind CGNAT, so always relay is the starting point.
