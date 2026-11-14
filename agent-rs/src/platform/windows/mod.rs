@@ -2,8 +2,10 @@
 
 mod input;
 mod scan_codes;
+mod touch;
 
 pub use input::{InputInjector, use_physical_pixels};
+pub use touch::TouchInjector;
 
 use ::windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 use ::windows::core::PCWSTR;

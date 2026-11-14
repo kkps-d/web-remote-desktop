@@ -8,6 +8,7 @@ mod sdp;
 mod session;
 mod sessions;
 mod settings;
+mod touch;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};

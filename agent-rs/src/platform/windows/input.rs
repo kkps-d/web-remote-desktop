@@ -17,6 +17,7 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
 
 use super::scan_codes;
 use crate::input::{InputBackend, MouseButton};
+use crate::touch::to_pixel;
 
 /// Makes the process per-monitor DPI aware, so cursor positions and screen sizes are in
 /// physical pixels like the captured display. Call once at startup.
@@ -27,17 +28,9 @@ pub fn use_physical_pixels() {
 }
 
 /// The primary display's size. In physical pixels, since the process is per-monitor DPI aware.
-fn display_size() -> (i32, i32) {
+pub(super) fn display_size() -> (i32, i32) {
     // SAFETY: GetSystemMetrics only reads system settings.
     unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
-}
-
-/// The pixel at a position given as 0–1 fractions of a display, clamped to it.
-fn to_pixel(x: f64, y: f64, width: i32, height: i32) -> (i32, i32) {
-    let axis = |fraction: f64, size: i32| {
-        ((fraction.clamp(0.0, 1.0) * size as f64) as i32).clamp(0, size - 1)
-    };
-    (axis(x, width), axis(y, height))
 }
 
 /// SendInput's absolute coordinates for a pixel, clamped to the display. They span 0–65535 over
@@ -338,12 +331,5 @@ mod tests {
                 assert_eq!(x * size / 65536, pixel, "{pixel} of {size}");
             }
         }
-    }
-
-    #[test]
-    fn maps_fractions_to_pixels_within_the_display() {
-        assert_eq!(to_pixel(0.5, 0.25, 1920, 1080), (960, 270));
-        assert_eq!(to_pixel(1.0, 1.0, 1920, 1080), (1919, 1079));
-        assert_eq!(to_pixel(-1.0, 2.0, 1920, 1080), (0, 1079));
     }
 }

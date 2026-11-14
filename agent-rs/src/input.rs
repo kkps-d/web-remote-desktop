@@ -1,6 +1,6 @@
 //! The viewer's "input" data channel: its messages (see the input protocol in REQUIREMENTS.md)
-//! and how they reach the OS. Held keys and buttons are released when the channel closes or the
-//! session ends.
+//! and how they reach the OS. Held keys, buttons and touches are released when the channel
+//! closes or the session ends.
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -13,6 +13,7 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::platform;
+use crate::touch::{TouchBackend, TouchState};
 
 /// Injects input into the OS. Positions and sizes refer to the primary display.
 pub trait InputBackend: Send {
@@ -105,9 +106,10 @@ enum Rejected {
 }
 
 /// Applies one message from the viewer.
-fn apply<B: InputBackend>(
+fn apply<B: InputBackend, T: TouchBackend>(
     text: &str,
     input: &mut InputState<B>,
+    touch: &mut TouchState<T>,
     set_stream_cursor: &dyn Fn(bool),
 ) -> Result<(), Rejected> {
     match parse(text).map_err(Rejected::Invalid)? {
@@ -116,9 +118,11 @@ fn apply<B: InputBackend>(
         InputMessage::Button { button, down } => input.button(button, down),
         InputMessage::Wheel { dx, dy } => input.backend.scroll(dx, dy),
         InputMessage::Key { code, down } => input.key(&code, down),
-        // Applied once the touch backend exists.
-        InputMessage::Touch { .. } => {}
-        InputMessage::ReleaseAll => input.release_all(),
+        InputMessage::Touch { contacts, canceled } => touch.update(&contacts, canceled),
+        InputMessage::ReleaseAll => {
+            input.release_all();
+            touch.cancel_all();
+        }
         InputMessage::Cursor { visible } => set_stream_cursor(visible),
         InputMessage::Unknown => return Err(Rejected::Unknown),
     }
@@ -129,6 +133,7 @@ fn apply<B: InputBackend>(
 pub struct InputChannel {
     session_id: String,
     input: Mutex<InputState<platform::InputInjector>>,
+    touch: Mutex<TouchState<platform::TouchInjector>>,
     set_stream_cursor: Box<dyn Fn(bool) + Send + Sync>,
 }
 
@@ -142,6 +147,7 @@ impl InputChannel {
         let channel = Arc::new(Self {
             session_id: session_id.to_owned(),
             input: Mutex::new(InputState::new(platform::InputInjector::new())),
+            touch: Mutex::new(TouchState::new(platform::TouchInjector::new())),
             set_stream_cursor: Box::new(set_stream_cursor),
         });
         let input = channel.clone();
@@ -177,7 +183,8 @@ impl InputChannel {
     // A bad message is logged and dropped, so a viewer can't make the agent fail.
     fn receive(&self, text: &str) {
         let mut input = self.input.lock().unwrap();
-        match apply(text, &mut input, &*self.set_stream_cursor) {
+        let mut touch = self.touch.lock().unwrap();
+        match apply(text, &mut input, &mut touch, &*self.set_stream_cursor) {
             Ok(()) => {}
             Err(Rejected::Unknown) => {
                 warn!("Session {}: unknown input message {text}", self.session_id);
@@ -200,6 +207,7 @@ impl InputChannel {
     /// Releases held input. Call after the pipeline has stopped, so no more messages arrive.
     pub fn release_all(&self) {
         self.input.lock().unwrap().release_all();
+        self.touch.lock().unwrap().cancel_all();
     }
 }
 
@@ -233,8 +241,6 @@ pub enum InputMessage {
         down: bool,
     },
     /// Every finger on the stream; missing ids lift, or are canceled with `canceled`.
-    // Read once touch is applied.
-    #[allow(dead_code)]
     Touch {
         contacts: Vec<Contact>,
         #[serde(default)]
@@ -250,8 +256,8 @@ pub enum InputMessage {
     Unknown,
 }
 
+/// A finger on the stream, at 0–1 fractions of the video content area like `Move`.
 #[derive(Debug, PartialEq, Deserialize)]
-#[allow(dead_code)]
 pub struct Contact {
     pub id: i32,
     pub x: f64,
@@ -271,6 +277,7 @@ pub fn parse(text: &str) -> serde_json::Result<InputMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::touch::{Phase, TouchPoint};
 
     #[test]
     fn parses_every_message_type() {
@@ -417,17 +424,75 @@ mod tests {
         }
     }
 
+    /// Records touch frames on a 1920×1080 display.
+    #[derive(Default)]
+    struct TouchRecorder(Vec<Vec<TouchPoint>>);
+
+    impl TouchBackend for TouchRecorder {
+        fn display_size(&self) -> (i32, i32) {
+            (1920, 1080)
+        }
+        fn send(&mut self, frame: &[TouchPoint]) {
+            self.0.push(frame.to_vec());
+        }
+    }
+
     fn input() -> InputState<Recorder> {
         InputState::new(Recorder::default())
+    }
+
+    fn touch() -> TouchState<TouchRecorder> {
+        TouchState::new(TouchRecorder::default())
     }
 
     // Applies the messages in order and returns what was sent.
     fn receive(messages: &[&str]) -> Vec<Sent> {
         let mut input = input();
         for text in messages {
-            let _ = apply(text, &mut input, &|_| {});
+            let _ = apply(text, &mut input, &mut touch(), &|_| {});
         }
         input.backend.0
+    }
+
+    // Applies the messages in order and returns the touch frames' phases and the mouse and
+    // keyboard input sent.
+    fn receive_touch(messages: &[&str]) -> (Vec<Vec<TouchPoint>>, Vec<Sent>) {
+        let (mut input, mut touch) = (input(), touch());
+        for text in messages {
+            apply(text, &mut input, &mut touch, &|_| {}).unwrap();
+        }
+        (touch.into_backend().0, input.backend.0)
+    }
+
+    #[test]
+    fn applies_touch_frames() {
+        let (frames, sent) = receive_touch(&[
+            r#"{"type":"touch","contacts":[{"id":3,"x":0.5,"y":0.25},{"id":4,"x":1,"y":1}]}"#,
+            r#"{"type":"touch","contacts":[],"canceled":true}"#,
+        ]);
+
+        let phases =
+            |frame: &[TouchPoint]| frame.iter().map(|point| point.phase).collect::<Vec<_>>();
+        assert_eq!((frames[0][0].x, frames[0][0].y), (960, 270));
+        assert_eq!(phases(&frames[0]), [Phase::Down, Phase::Down]);
+        assert_eq!(phases(&frames[1]), [Phase::Canceled, Phase::Canceled]);
+        assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn release_all_cancels_touches() {
+        let (frames, _) = receive_touch(&[
+            r#"{"type":"touch","contacts":[{"id":1,"x":0.5,"y":0.5}]}"#,
+            r#"{"type":"releaseAll"}"#,
+        ]);
+
+        assert_eq!(
+            frames[1]
+                .iter()
+                .map(|point| point.phase)
+                .collect::<Vec<_>>(),
+            [Phase::Canceled]
+        );
     }
 
     #[test]
@@ -465,7 +530,7 @@ mod tests {
         for visible in [true, false] {
             let cursor = Mutex::new(Vec::new());
             let text = format!(r#"{{"type":"cursor","visible":{visible}}}"#);
-            apply(&text, &mut input(), &|visible| {
+            apply(&text, &mut input(), &mut touch(), &|visible| {
                 cursor.lock().unwrap().push(visible)
             })
             .unwrap();
@@ -477,7 +542,7 @@ mod tests {
     #[test]
     fn rejects_unknown_types() {
         let mut input = input();
-        let result = apply(r#"{"type":"scroll"}"#, &mut input, &|_| {});
+        let result = apply(r#"{"type":"scroll"}"#, &mut input, &mut touch(), &|_| {});
 
         assert!(matches!(result, Err(Rejected::Unknown)));
         assert!(input.backend.0.is_empty());
@@ -486,10 +551,16 @@ mod tests {
     #[test]
     fn rejects_malformed_messages_and_keeps_applying_input() {
         let mut input = input();
-        let rejected = apply(r#"{"type":"move","x":0.5}"#, &mut input, &|_| {});
+        let rejected = apply(
+            r#"{"type":"move","x":0.5}"#,
+            &mut input,
+            &mut touch(),
+            &|_| {},
+        );
         apply(
             r#"{"type":"button","button":0,"down":true}"#,
             &mut input,
+            &mut touch(),
             &|_| {},
         )
         .unwrap();
