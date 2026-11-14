@@ -38,10 +38,11 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
 - Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into `SendInput` calls via P/Invoke.
 - Fallback if `webrtcbin` from C# becomes too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
+- Rust port (`agent-rs/`): the same API, protocol and pipeline with `gstreamer-rs`, which is maintained upstream and suits the planned Linux support (PipeWire, portals). It replaces the C# agent, which stays for now. OS-specific code is under `src/platform/`.
 
 ### Spike results (`spikes/GstSpike`)
 
-The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build, "Complete" install); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
+The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
 Out of scope for now: Windows service, login screen/UAC capture, multiple monitors. Audio comes in v1.1.
 
