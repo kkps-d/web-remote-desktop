@@ -83,7 +83,8 @@ sealed class InputChannel : IDisposable
                     injector.Scroll(message.GetProperty("dx").GetInt32(), message.GetProperty("dy").GetInt32());
                     break;
                 case "key":
-                    injector.Key(message.GetProperty("code").GetString()!, message.GetProperty("down").GetBoolean());
+                    var code = message.GetProperty("code").GetString() ?? throw new FormatException("The key code is null.");
+                    injector.Key(code, message.GetProperty("down").GetBoolean());
                     break;
                 case "releaseAll":
                     injector.ReleaseAll();
@@ -99,6 +100,11 @@ sealed class InputChannel : IDisposable
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
             logger.LogWarning("Session {Id}: invalid input message {Text}: {Error}", sessionId, text, ex.Message);
+        }
+        // GStreamer calls this from native code, where an escaping exception would end the agent.
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Session {Id}: failed to handle input message {Text}", sessionId, text);
         }
     }
 
