@@ -41,7 +41,7 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 
 ### Spike results (`spikes/GstSpike`)
 
-The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28 (official MSVC build, "Complete" install). See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
+The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build, "Complete" install); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
 Out of scope for now: Windows service, login screen/UAC capture, multiple monitors. Audio comes in v1.1.
 
@@ -149,11 +149,12 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 ### v1.1 scope: audio
 
 - Agent: capture what every app plays (WASAPI process loopback, excluding the agent's own process), encode it as Opus and send it on the same `webrtcbin` connection as the video.
+  - Process loopback needs Windows build 20348 or later (e.g. Windows 11) and GStreamer 1.28.4 or later (earlier 1.28 releases hang with `loopback-target-pid`). Older Windows builds stream video only.
   - Process loopback follows output device switches; plain loopback of the default device stops for good on a switch.
   - The audio source must not provide the pipeline clock: when the device switches, that clock stalls and freezes the video.
   - Like the video, the RTP caps must match the browser's offer: use its Opus payload type.
 - Client: adds a receive-only audio transceiver to the offer and plays the track with the video.
-  - Mute toggle in the toolbar, remembered in the browser.
+  - Mute toggle in the toolbar, remembered in the browser. Sessions with an agent on `localhost` start muted, since the agent would capture the playback and echo it.
   - If the browser blocks unmuted playback, play muted and show the toggle as muted.
 - Audio is one-way: no microphone from the client.
 
@@ -187,7 +188,7 @@ Streaming hosts like Sunshine send the host's audio to a virtual output device, 
   - **Steam Streaming Speakers**: the virtual device installed with Steam. The host goes silent, PCs without an audio device work, and latency drops by about 40 ms (default-device loopback instead of process loopback). Unavailable, with the reason, when Steam's driver isn't installed.
   - **Output device**: any other installed output device, e.g. VB-Cable.
 - The device modes make the chosen device the Windows default for the session, through the undocumented `IPolicyConfig` COM interface (as Sunshine does), and capture it with default-device loopback.
-  - The previous default is restored when the session ends. The agent saves it to a file first and restores it at startup if it crashed mid-session.
+  - The previous default is restored when the session ends, unless the user changed the default during the session. The agent saves both devices to a file first and restores at startup if it crashed mid-session, under the same condition.
   - If the user switches the default device during the session, the stream goes silent; it doesn't fail.
 - **TBD:** whether the mode is an agent setting or a client stream setting.
 - Out of scope: writing, signing or bundling an audio driver.

@@ -5,6 +5,13 @@
 - **Framerate can exceed the selected rate.** At 120 fps, the Android overlay reached 144 fps and the agent averaged 132 encoded fps over 12 seconds. The agent sets the requested rate in the GStreamer capture caps and relies on the capture source for pacing. A fresh session held near 120 fps, so the trigger in the affected session is still unknown.
 - **NVENC bitrate can exceed the selected rate.** At 8 Mbps, a fullscreen motion test peaked at 14.9 Mbps in the overlay. The setting is an average target for variable bitrate encoding, with the peak left to NVENC. The overlay shows the receive rate over roughly one second.
 
+## Audio
+
+- **Viewing on the agent's own computer echoes when unmuted.** The agent captures everything the computer plays, including the client's playback of the stream. Sessions with an agent on `localhost` start muted; a LAN address of the same computer doesn't.
+- **No audio on Windows builds before 20348.** Process loopback needs Windows 10 build 20348 or later (e.g. Windows 11); older builds stream video only.
+- **Process loopback adds about 40 ms.** The spike measured 135–138 ms against 96 ms for loopback of the default output device, which stops for good when the output device switches. See the [audio spike results](REQUIREMENTS.md#audio-spike-results-branch-spikeaudio); v1.15 lists the alternatives.
+- **The host's volume and mute don't apply.** Process loopback captures before them, so the viewer hears full volume while the host is muted, and the host's speakers keep playing.
+
 ## Encoders
 
 - **Media Foundation can break NVENC until the agent restarts.** After NVENC has run, using a Media Foundation encoder in the same process makes later NVENC sessions fail with `NV_ENC_ERR_INVALID_VERSION`. Reproduced with GStreamer 1.28.8 and NVIDIA driver 610.88. The agent disables the hardware and software Media Foundation encoders when NVENC is available.
