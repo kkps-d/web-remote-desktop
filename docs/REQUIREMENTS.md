@@ -95,6 +95,23 @@ Out of scope for now: Windows service, login screen/UAC capture, audio, multiple
 - Stuck keys: the client releases every held key and button when the window loses focus, the tab is hidden, or it disconnects. The agent releases them when the data channel closes or the session ends.
 - Out of scope for v1: auth (v3.0), HTTPS, clipboard, audio. See [input limitations](KNOWN_ISSUES.md#input).
 
+#### Input protocol
+
+JSON text messages on the `input` channel. Numbers other than `x` and `y` are integers.
+
+| Message | Meaning |
+| --- | --- |
+| `{type:"move", x, y}` | Absolute position, 0–1 of the video content area |
+| `{type:"moveBy", dx, dy}` | Relative move in pixels |
+| `{type:"button", button, down}` | DOM button number: 0 left, 1 middle, 2 right |
+| `{type:"wheel", dx, dy}` | Scroll in Windows wheel units (120 per notch), positive right and down like DOM deltas |
+| `{type:"key", code, down}` | `KeyboardEvent.code`; unknown codes are ignored |
+| `{type:"releaseAll"}` | Release every held key and button |
+| `{type:"cursor", visible}` | Show or hide the cursor in the stream |
+
+- The agent maps absolute positions to pixel centers on the primary display. It applies relative moves to the cursor position and moves there absolutely, so Windows pointer acceleration never applies.
+- The stream cursor follows the pointer mode over the channel rather than `PATCH /sessions`, so it stays out of the saved stream settings.
+
 #### Data channel spike results (branch `spike/data-channel`)
 
 `webrtcbin` data channels work from C#. Tested on localhost with a 2560×1440 display at 100% scaling:
