@@ -43,12 +43,13 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 
 The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28 (official MSVC build, "Complete" install). See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
-Out of scope for now: Windows service, login screen/UAC capture, audio, multiple monitors.
+Out of scope for now: Windows service, login screen/UAC capture, multiple monitors. Audio comes in v1.1.
 
 ## Milestones
 
 - **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
 - **v1:** v0.5 plus mouse and keyboard input over the data channel.
+- **v1.1:** stream the remote computer's audio to the web client.
 - **v2.0:** reach agents over the internet through the orchprox.
 - **v3.0:** authentication: clients log in, and agents register with the orchprox using a secret.
 
@@ -95,7 +96,7 @@ Out of scope for now: Windows service, login screen/UAC capture, audio, multiple
 - Leaving the viewer: every key goes to the remote computer, Tab included, so Ctrl+Alt+Home (as in Remote Desktop) releases held keys, leaves fullscreen and Pointer Lock, and moves focus to the toolbar.
 - Browser-reserved shortcuts: the client stays on HTTP, so Keyboard Lock only works when it runs on `localhost` (in fullscreen). A toolbar dropdown sends them as buttons: Win, Alt+Tab, Alt+F4, Ctrl+W, Ctrl+Shift+Esc, Ctrl+Alt+Del.
 - Stuck keys: the client releases every held key and button when the window loses focus, the tab is hidden, or it disconnects. The agent releases them when the data channel closes or the session ends.
-- Out of scope for v1: auth (v3.0), HTTPS, clipboard, audio. See [input limitations](KNOWN_ISSUES.md#input).
+- Out of scope for v1: auth (v3.0), HTTPS, clipboard, audio (v1.1). See [input limitations](KNOWN_ISSUES.md#input).
 
 #### Input protocol
 
@@ -140,6 +141,15 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 - Over plain HTTP from a LAN address, Chrome lacks `pointerrawupdate` and `getCoalescedEvents` (secure context only). `pointermove` then arrives once per display frame, so a real mouse sends at most the display's refresh rate.
 - Absolute moves can land 1 px off (1480 → 1479); map fractions to pixel centers.
 - Not tested: button clicks (to avoid clicking on the live desktop), keyboard, touch, Pointer Lock, display scaling other than 100%.
+
+### v1.1 scope: audio
+
+- Agent: capture what the default output device plays (WASAPI loopback, `wasapi2src loopback=true`), encode it as Opus and send it on the same `webrtcbin` connection as the video.
+  - Like the video, the RTP caps must match the browser's offer: use its Opus payload type.
+- Client: adds a receive-only audio transceiver to the offer and plays the track with the video.
+  - Mute toggle in the toolbar, remembered in the browser.
+- Audio is one-way: no microphone from the client.
+- **TBD:** behavior when nothing is playing (loopback may deliver no samples), audio/video sync and added latency, and whether the default output device changing mid-session is followed. To be answered by a spike.
 
 ### v2.0 scope: orchprox
 
