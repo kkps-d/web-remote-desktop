@@ -1,4 +1,4 @@
-// Stream and input settings remembered across visits.
+// Stream, input and audio settings remembered across visits.
 
 import { scaleToHeight, type StreamInfo, type StreamSettings } from "./agent-connection.ts"
 import type { MouseMode, TouchMode } from "./pointer-input.ts"
@@ -6,6 +6,7 @@ import { readStorage, writeStorage } from "./storage.ts"
 
 const STREAM_SETTINGS_KEY = "streamSettings"
 const INPUT_SETTINGS_KEY = "inputSettings"
+const AUDIO_MUTED_KEY = "audioMuted"
 
 export const INPUT_RATES_HZ = [125, 250, 500, 1000]
 
@@ -97,4 +98,17 @@ export function readInputSettings() {
 
 export function saveInputSettings(settings: InputSettings) {
   writeStorage(INPUT_SETTINGS_KEY, JSON.stringify(settings))
+}
+
+/** Whether the user muted the stream's audio. Unmuted unless "true" is saved. */
+export function parseAudioMuted(raw: string | null): boolean {
+  return raw === "true"
+}
+
+export function readAudioMuted() {
+  return parseAudioMuted(readStorage(AUDIO_MUTED_KEY))
+}
+
+export function saveAudioMuted(muted: boolean) {
+  writeStorage(AUDIO_MUTED_KEY, String(muted))
 }

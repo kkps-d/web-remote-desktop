@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
-import { LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
+import { LoaderCircle, Maximize, Minimize, Unplug, Volume2, VolumeX } from "lucide-react"
 
 import { InputMenu } from "@/components/input-menu"
 import { ShortcutsMenu } from "@/components/shortcuts-menu"
@@ -7,6 +7,7 @@ import { StatsOverlay } from "@/components/stats-overlay"
 import { StatsMenu } from "@/components/stats-menu"
 import { StreamSettingsPicker } from "@/components/stream-settings-picker"
 import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
+import { useStreamPlayback } from "@/hooks/use-stream-playback"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { LEAVE_SHORTCUT } from "@/lib/keyboard-input"
 import { captureThumbnail, rememberDevice } from "@/lib/recent-devices"
@@ -57,9 +58,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
     ...inputSettings,
   })
 
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = connection?.stream ?? null
-  }, [connection])
+  const audio = useStreamPlayback(videoRef, address, connection)
 
   // Remember the device for the connect screen, refreshing its thumbnail so one survives a closed tab.
   useEffect(() => {
@@ -118,6 +117,9 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             onBasicChange={(basic) => setStatsVisibility((current) => ({ ...current, basic }))}
             onAdvancedChange={(advanced) => setStatsVisibility((current) => ({ ...current, advanced }))}
           />
+          <ToolbarButton label={audio.muted ? "Unmute audio" : "Mute audio"} onClick={audio.toggleMuted}>
+            {audio.muted ? <VolumeX /> : <Volume2 />}
+          </ToolbarButton>
           <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
@@ -143,7 +145,6 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
           // Touches are forwarded, so the browser mustn't pan or zoom on them.
           className="size-full touch-none object-contain"
           aria-hidden
-          autoPlay
           playsInline
         />
         {!connected && (

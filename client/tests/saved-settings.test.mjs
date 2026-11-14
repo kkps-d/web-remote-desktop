@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+  parseAudioMuted,
   parseInputSettings,
   parseStreamSettings,
   resolveSavedSettings,
@@ -88,4 +89,9 @@ test("falls back to an absolute mouse, touchscreen at 125 Hz for missing or unsu
   for (const raw of [null, "not json", '{"mouse":"touch","rateHz":500}', '{"mouse":"relative","rateHz":60}', '{"mouse":"relative"}']) {
     assert.deepEqual(parseInputSettings(raw), { mouse: "absolute", touch: "touchscreen", rateHz: 125 }, String(raw))
   }
+})
+
+test("audio is muted only when the user saved it muted", () => {
+  assert.equal(parseAudioMuted("true"), true)
+  for (const raw of [null, "false", "1", "not json"]) assert.equal(parseAudioMuted(raw), false, String(raw))
 })
