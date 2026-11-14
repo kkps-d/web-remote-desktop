@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
 
 import { InputMenu } from "@/components/input-menu"
@@ -8,6 +8,7 @@ import { StatsMenu } from "@/components/stats-menu"
 import { StreamSettingsPicker } from "@/components/stream-settings-picker"
 import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
+import { LEAVE_SHORTCUT } from "@/lib/keyboard-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -32,12 +33,24 @@ interface StatsVisibility {
 export function ViewerScreen({ address, connection, status, onDisconnect }: ViewerScreenProps) {
   const connected = status === "connected"
   const stageRef = useRef<HTMLDivElement>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [statsVisibility, setStatsVisibility] = useStatsVisibility()
   const isFullscreen = useIsFullscreen()
   const streamSettings = useStreamSettings(connection)
   const [inputSettings, setInputSettings] = useInputSettings()
-  const inputSender = useRemoteInput({ connection, stageRef, videoRef, ...inputSettings })
+  // The toolbar is hidden in fullscreen, so leaving the stage leaves fullscreen too.
+  const focusToolbar = useCallback(() => {
+    if (document.fullscreenElement) document.exitFullscreen()
+    toolbarRef.current?.querySelector("button")?.focus()
+  }, [])
+  const inputSender = useRemoteInput({
+    connection,
+    stageRef,
+    videoRef,
+    onLeaveKeyboard: focusToolbar,
+    ...inputSettings,
+  })
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = connection?.stream ?? null
@@ -54,7 +67,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         <Badge variant={connected ? "default" : "secondary"}>{statusLabels[status]}</Badge>
         <span className="min-w-0 truncate text-sm text-muted-foreground">{address}</span>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div ref={toolbarRef} className="ml-auto flex items-center gap-1">
           <InputMenu
             mode={inputSettings.mode}
             rateHz={inputSettings.rateHz}
@@ -92,6 +105,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         tabIndex={0}
         role="application"
         aria-label={`Remote desktop of ${address}`}
+        aria-description={`Keys go to the remote computer. Press ${LEAVE_SHORTCUT} to return to the toolbar.`}
         className="relative min-h-0 flex-1 bg-black outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
       >
         <video

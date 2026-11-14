@@ -107,7 +107,9 @@ export function attachPointerInput(video: HTMLVideoElement, sender: InputSender,
   }
 
   function onPointerCancel(event: PointerEvent) {
-    if (event.pointerType === "touch") touch.cancel()
+    if (event.pointerType === "touch") return touch.cancel()
+    // A canceled pen or mouse gesture gets no pointerup; the sender ignores buttons that aren't held.
+    for (const button of [0, 1, 2] as const) sender.button(button, false)
   }
 
   function onWheel(event: WheelEvent) {

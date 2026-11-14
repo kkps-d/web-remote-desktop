@@ -18,13 +18,15 @@ interface RemoteInputOptions extends InputSettings {
   connection?: AgentConnection
   stageRef: RefObject<HTMLElement | null>
   videoRef: RefObject<HTMLVideoElement | null>
+  /** Moves focus out of the stage when the user presses the leave shortcut; keep it stable. */
+  onLeaveKeyboard: () => void
 }
 
 /**
  * Forwards mouse input on the video and keyboard input on the stage to the connection's input
  * channel. Returns the sender, for toolbar shortcuts.
  */
-export function useRemoteInput({ connection, stageRef, videoRef, mode, rateHz }: RemoteInputOptions) {
+export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard, mode, rateHz }: RemoteInputOptions) {
   const sender = useMemo(() => connection && createInputSender(connection.input), [connection])
 
   useEffect(() => {
@@ -34,14 +36,14 @@ export function useRemoteInput({ connection, stageRef, videoRef, mode, rateHz }:
   useEffect(() => {
     const stage = stageRef.current
     if (!sender || !stage) return
-    const detach = attachKeyboardInput(stage, sender)
+    const detach = attachKeyboardInput(stage, sender, onLeaveKeyboard)
     return () => {
       detach()
       // Sent only if the channel is still open; the agent also releases input when it closes.
       sender.releaseAll()
       sender.cancelPending()
     }
-  }, [sender, stageRef])
+  }, [sender, stageRef, onLeaveKeyboard])
 
   useEffect(() => {
     const video = videoRef.current

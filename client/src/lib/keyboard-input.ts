@@ -8,15 +8,28 @@ interface KeyboardLock {
   unlock(): void
 }
 
+/** Leaves the stage without sending the keys, since every other key, Tab included, goes to the remote computer. */
+export const LEAVE_SHORTCUT = "Ctrl+Alt+Home"
+
 /**
  * Sends key presses on the focusable stage as `KeyboardEvent.code`s; auto-repeat is sent as
  * more downs. Clicking the video focuses the stage. Releases everything when focus or the tab
- * is lost, since the matching key ups would never arrive.
+ * is lost, since the matching key ups would never arrive. `onLeave` runs on the leave shortcut
+ * and should move focus out of the stage.
  */
-export function attachKeyboardInput(stage: HTMLElement, sender: InputSender): () => void {
+export function attachKeyboardInput(stage: HTMLElement, sender: InputSender, onLeave: () => void): () => void {
   function onKey(event: KeyboardEvent) {
     // Keys without a physical code (some IME and virtual keyboard events) can't be injected.
     if (!event.code) return
+    // Same as Remote Desktop's shortcut for leaving the session's keyboard.
+    if (event.type === "keydown" && event.code === "Home" && event.ctrlKey && event.altKey) {
+      event.preventDefault()
+      // Ctrl and Alt already went down remotely, and their ups will land outside the stage.
+      sender.releaseAll()
+      if (document.pointerLockElement) document.exitPointerLock()
+      onLeave()
+      return
+    }
     event.preventDefault()
     sender.key(event.code, event.type === "keydown")
   }
