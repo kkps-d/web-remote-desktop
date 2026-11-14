@@ -49,6 +49,7 @@ sealed class StreamSession : IDisposable
     readonly Pad outputSrc;
     readonly Pad parseSink;
     readonly EncodeTiming encodeTiming = new();
+    readonly InputChannel input;
     readonly EncoderCatalog encoders;
     readonly ILogger logger;
     EncoderBin encoderBin;
@@ -85,12 +86,20 @@ sealed class StreamSession : IDisposable
         if (!LinkEncoder(encoderBin)) throw new InvalidOperationException($"Could not link the {Settings.Encoder} encoder.");
         encodeTiming.Attach(encoderBin.Sink, encoderBin.Src);
         connectionMonitor = new Timer(_ => CheckConnection());
+        input = new InputChannel(webrtc, Id, SetStreamCursor, logger);
     }
 
     Pad StaticPad(string element, string pad)
     {
         using var owner = Native.GetByName(pipeline, element);
         return Native.GetStaticPad(owner, pad);
+    }
+
+    // The viewer hides the stream cursor while it shows its own (absolute pointer mode).
+    void SetStreamCursor(bool visible)
+    {
+        using var capture = Native.GetByName(pipeline, "capture");
+        capture["show-cursor"] = visible;
     }
 
     /// <summary>Starts streaming and answers the offer. Blocks for up to a few seconds.</summary>
@@ -395,6 +404,13 @@ sealed class StreamSession : IDisposable
             if (message == null) continue;
 
             // The message structure holds both the error text and the debug details.
+            // SCTP carries the input channel; its association fails when the viewer closes the
+            // connection. The video keeps going, and the connection monitor ends the session.
+            if (message.Type == MessageType.Error && message.Src?.Name.StartsWith("sctp") == true)
+            {
+                input.Closed($"failed: {message.Src.Name} association ended");
+                continue;
+            }
             if (message.Type == MessageType.Warning)
             {
                 // A frame rate change makes d3d11convert fail to renegotiate with the old input caps
@@ -428,6 +444,7 @@ sealed class StreamSession : IDisposable
         if (Interlocked.Exchange(ref disposed, 1) == 1) return;
         connectionMonitor.Dispose();
         pipeline.SetState(State.Null);
+        input.Dispose();
 
         // The pipeline and the D3D11 device it holds (with its GPU driver threads) are only
         // freed once every wrapper into it is released. Wait out a running connection check first.

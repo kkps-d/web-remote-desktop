@@ -13,6 +13,7 @@ builder.Services.AddSingleton<EncoderCatalog>();
 builder.Services.AddSingleton<ViewerSessions>();
 
 GStreamerRuntime.Initialize();
+InputInjector.UsePhysicalPixels();
 
 var app = builder.Build();
 app.UseCors();
