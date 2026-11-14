@@ -161,13 +161,26 @@ test("sends a finger landing or lifting at once and merges moves into the latest
   sender.touch([{ id: 1, x: 0.2, y: 0.2 }])
   sender.touch([{ id: 1, x: 0.3, y: 0.3 }])
   assert.equal(channel.messages.length, 1)
-  // A second finger goes out at once, its frame replacing the pending move.
+  // A second finger goes out at once, after the pending move.
   sender.touch([{ id: 1, x: 0.4, y: 0.4 }, { id: 2, x: 0.5, y: 0.5 }])
   sender.touch([{ id: 2, x: 0.5, y: 0.5 }])
   assert.deepEqual(channel.messages, [
     { type: "touch", contacts: [{ id: 1, x: 0.1, y: 0.1 }] },
+    { type: "touch", contacts: [{ id: 1, x: 0.3, y: 0.3 }] },
     { type: "touch", contacts: [{ id: 1, x: 0.4, y: 0.4 }, { id: 2, x: 0.5, y: 0.5 }] },
     { type: "touch", contacts: [{ id: 2, x: 0.5, y: 0.5 }] },
+  ])
+})
+
+test("a lifting finger's pending move goes out before the lift", () => {
+  const { channel, sender } = setup(125)
+  sender.touch([{ id: 1, x: 0.1, y: 0.1 }])
+  sender.touch([{ id: 1, x: 0.8, y: 0.8 }])
+  sender.touch([])
+  assert.deepEqual(channel.messages, [
+    { type: "touch", contacts: [{ id: 1, x: 0.1, y: 0.1 }] },
+    { type: "touch", contacts: [{ id: 1, x: 0.8, y: 0.8 }] },
+    { type: "touch", contacts: [] },
   ])
 })
 

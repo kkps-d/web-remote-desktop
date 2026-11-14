@@ -146,12 +146,17 @@ export function createInputSender(
     },
     touch(contacts) {
       const ids = new Set(contacts.map((contact) => contact.id))
-      pendingTouch = contacts
-      // A finger landing or lifting can't be merged away (a quick tap would vanish).
+      // A finger landing or lifting can't be merged away (a quick tap would vanish). The pending
+      // frame goes first, so a lifting finger's last move isn't lost.
       if (ids.size !== sentTouchIds.size || [...ids].some((id) => !sentTouchIds.has(id))) {
         flushPointer()
+        pendingTouch = contacts
+        flushPointer()
         sentTouchIds = ids
-      } else queuePointer()
+      } else {
+        pendingTouch = contacts
+        queuePointer()
+      }
     },
     touchCancel() {
       pendingTouch = null
