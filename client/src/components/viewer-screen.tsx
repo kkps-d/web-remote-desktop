@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { LoaderCircle, Maximize, Minimize, Unplug } from "lucide-react"
 
+import { InputMenu } from "@/components/input-menu"
+import { ShortcutsMenu } from "@/components/shortcuts-menu"
 import { StatsOverlay } from "@/components/stats-overlay"
 import { StatsMenu } from "@/components/stats-menu"
 import { StreamSettingsPicker } from "@/components/stream-settings-picker"
+import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,6 +36,8 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   const [statsVisibility, setStatsVisibility] = useStatsVisibility()
   const isFullscreen = useIsFullscreen()
   const streamSettings = useStreamSettings(connection)
+  const [inputSettings, setInputSettings] = useInputSettings()
+  const inputSender = useRemoteInput({ connection, stageRef, videoRef, ...inputSettings })
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = connection?.stream ?? null
@@ -50,6 +55,14 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         <span className="min-w-0 truncate text-sm text-muted-foreground">{address}</span>
 
         <div className="ml-auto flex items-center gap-1">
+          <InputMenu
+            mode={inputSettings.mode}
+            rateHz={inputSettings.rateHz}
+            disabled={!connected}
+            onModeChange={(mode) => setInputSettings((current) => ({ ...current, mode }))}
+            onRateChange={(rateHz) => setInputSettings((current) => ({ ...current, rateHz }))}
+          />
+          <ShortcutsMenu sender={inputSender} disabled={!connected} />
           <StreamSettingsPicker
             info={streamSettings.info}
             error={streamSettings.error}
@@ -65,18 +78,27 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
           <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
-          <Button variant="outline" onClick={onDisconnect}>
+          {/* Icon-only on phones so the toolbar fits. */}
+          <Button variant="outline" className="max-sm:size-8 max-sm:px-0" onClick={onDisconnect}>
             <Unplug aria-hidden />
-            Disconnect
+            <span className="max-sm:sr-only">Disconnect</span>
           </Button>
         </div>
       </header>
 
-      <div ref={stageRef} className="relative min-h-0 flex-1 bg-black">
+      {/* Focusable so it receives the keys sent to the remote computer. */}
+      <div
+        ref={stageRef}
+        tabIndex={0}
+        role="application"
+        aria-label={`Remote desktop of ${address}`}
+        className="relative min-h-0 flex-1 bg-black outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      >
         <video
           ref={videoRef}
-          className="size-full object-contain"
-          aria-label={`Remote desktop of ${address}`}
+          // Touches are forwarded, so the browser mustn't pan or zoom on them.
+          className="size-full touch-none object-contain"
+          aria-hidden
           autoPlay
           muted
           playsInline

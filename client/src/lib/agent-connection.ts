@@ -7,6 +7,8 @@ export interface AgentConnection {
   peerConnection: RTCPeerConnection
   /** Receives the remote desktop video track once media starts flowing. */
   stream: MediaStream
+  /** Reliable, ordered channel for mouse and keyboard input (see `input-sender.ts`). */
+  input: RTCDataChannel
   /** Fetches the source resolution and current stream settings. */
   getStreamInfo: () => Promise<StreamInfo>
   getEncodingStats: (signal?: AbortSignal) => Promise<EncodingStats>
@@ -77,6 +79,8 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
 
   peerConnection.addTransceiver("video", { direction: "recvonly" })
   peerConnection.ontrack = (event) => stream.addTrack(event.track)
+  // Created before the offer so the SDP negotiates the data channel along with the video.
+  const input = peerConnection.createDataChannel("input")
 
   try {
     await peerConnection.setLocalDescription(await peerConnection.createOffer())
@@ -107,6 +111,7 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
     return {
       peerConnection,
       stream,
+      input,
       getStreamInfo: () => queuedSessionRequest({ method: "GET" }),
       getEncodingStats: (signal) =>
         sessionRequest<EncodingStats>(sessionUrl ? new URL(`${sessionUrl.href}/stats`) : null, { signal }),
