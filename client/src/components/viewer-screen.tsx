@@ -142,7 +142,6 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
           className="size-full touch-none object-contain"
           aria-hidden
           autoPlay
-          muted
           playsInline
         />
         {!connected && (

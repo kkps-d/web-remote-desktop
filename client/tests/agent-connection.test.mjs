@@ -86,7 +86,7 @@ test("creates the input channel before the offer so the SDP includes it", async 
   stubFetch(t, agent)
   const connection = await connectToAgent("pc", new AbortController().signal)
 
-  assert.deepEqual(FakePeerConnection.last.steps, ["transceiver video", "channel input", "offer"])
+  assert.deepEqual(FakePeerConnection.last.steps, ["transceiver video", "transceiver audio", "channel input", "offer"])
   assert.equal(connection.input.label, "input")
 })
 

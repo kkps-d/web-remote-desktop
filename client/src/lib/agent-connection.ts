@@ -78,6 +78,8 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
   let sessionUrl: URL | null = null
 
   peerConnection.addTransceiver("video", { direction: "recvonly" })
+  // SPIKE: after the video, so it matches the agent's second webrtcbin pad.
+  peerConnection.addTransceiver("audio", { direction: "recvonly" })
   peerConnection.ontrack = (event) => stream.addTrack(event.track)
   // Created before the offer so the SDP negotiates the data channel along with the video.
   const input = peerConnection.createDataChannel("input")

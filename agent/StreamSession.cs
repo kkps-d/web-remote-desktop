@@ -71,12 +71,12 @@ sealed class StreamSession : IDisposable
     /// <summary>Raised once, from a background thread, when the connection fails or the pipeline errors.</summary>
     public event Action<StreamSession>? Ended;
 
-    StreamSession(H264Codec codec, EncoderCatalog encoders, ILogger logger)
+    StreamSession(H264Codec codec, int? opusPayloadType, EncoderCatalog encoders, ILogger logger)
     {
         this.encoders = encoders;
         this.logger = logger;
         Settings = new(0, 0, DefaultFramerate, DefaultBitrateKbps, encoders.Default);
-        pipeline = Native.Sink((Pipeline)Parse.Launch(PipelineDescription(codec, InitialSize(encoders.Limits(Settings.Encoder)))));
+        pipeline = Native.Sink((Pipeline)Parse.Launch(PipelineDescription(codec, opusPayloadType, InitialSize(encoders.Limits(Settings.Encoder)))));
         webrtc = Native.GetByName(pipeline, "webrtc");
         captureSrc = StaticPad("capture", "src");
         outputSrc = StaticPad("output", "src");
@@ -105,7 +105,7 @@ sealed class StreamSession : IDisposable
     /// <summary>Starts streaming and answers the offer. Blocks for up to a few seconds.</summary>
     public static StreamSession Start(string offerSdp, H264Codec codec, EncoderCatalog encoders, ILogger logger)
     {
-        var session = new StreamSession(codec, encoders, logger);
+        var session = new StreamSession(codec, FindOpusPayloadType(offerSdp), encoders, logger);
         try
         {
             var bus = Native.GetBus(session.pipeline);
@@ -131,13 +131,27 @@ sealed class StreamSession : IDisposable
     // level than browsers offer; they accept it (level-asymmetry-allowed=1), so capssetter just
     // relabels the caps. AMF labels its constrained output plain "baseline", so accept both.
     // The encoder bin goes between the two chains; see CreateEncoderBin.
-    static string PipelineDescription(H264Codec codec, Resolution? size) =>
+    static string PipelineDescription(H264Codec codec, int? opusPayloadType, Resolution? size) =>
         "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! " +
         $"capsfilter name=output caps={OutputCaps(size, DefaultFramerate)}  " +
         "h264parse name=parse ! video/x-h264,profile=(string){constrained-baseline,baseline} ! " +
         $"rtph264pay pt={codec.PayloadType} config-interval=-1 aggregate-mode=zero-latency ! " +
         $"capssetter caps=\"application/x-rtp,profile-level-id=(string){codec.ProfileLevelId}\" ! " +
-        "webrtcbin name=webrtc bundle-policy=max-bundle";
+        "webrtcbin name=webrtc bundle-policy=max-bundle" +
+        (opusPayloadType is { } pt ? "  " + AudioDescription(pt) : "");
+
+    // SPIKE: loopback capture of the default output device, linked after the video so it gets
+    // webrtcbin's sink_1 and matches the offer's audio m-line.
+    static string AudioDescription(int payloadType) =>
+        "wasapi2src name=audio loopback=true low-latency=true ! audioconvert ! audioresample ! " +
+        "audio/x-raw,rate=48000,channels=2 ! opusenc name=opus bitrate=128000 frame-size=10 ! " +
+        $"rtpopuspay pt={payloadType} ! webrtc.";
+
+    /// <summary>The browser's Opus payload type, or null if the offer has no audio.</summary>
+    public static int? FindOpusPayloadType(string offerSdp) =>
+        Regex.Match(offerSdp, @"a=rtpmap:(\d+) opus/48000/2") is { Success: true } match
+            ? int.Parse(match.Groups[1].Value)
+            : null;
 
     // Streams start at native resolution (null), unless the display is larger than the encoder
     // accepts; then they start scaled down to fit, e.g. NVENC's 4096 px on a 5K display.

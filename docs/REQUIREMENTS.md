@@ -149,7 +149,21 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 - Client: adds a receive-only audio transceiver to the offer and plays the track with the video.
   - Mute toggle in the toolbar, remembered in the browser.
 - Audio is one-way: no microphone from the client.
-- **TBD:** behavior when nothing is playing (loopback may deliver no samples), audio/video sync and added latency, and whether the default output device changing mid-session is followed. To be answered by a spike.
+- **TBD:** whether the default output device changing mid-session is followed, and what happens when it is muted (`loopback-silence-on-device-mute`).
+
+#### Audio spike results (branch `spike/audio`)
+
+Pipeline branch, linked after the video so it gets `webrtcbin`'s `sink_1` and matches the offer's audio m-line:
+`wasapi2src loopback=true low-latency=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt=<offer's> ! webrtc.`
+Tested on localhost with Chrome's video element muted, so the loopback didn't capture its own playback:
+
+- Works first try: the answer has `OPUS/48000/2` as `sendonly`, and both tracks share one `msid` stream, so Chrome lip-syncs them.
+- Silence: loopback keeps producing samples when nothing plays, so the caps wait in `Answer()` and the stream need no special handling. A steady 100 packets/s, 129 kbps, no concealment.
+- Latency: 96 ms (95–98 over 5 runs) from a beep played on the agent machine to its arrival in the browser. That includes the agent's output path (Chrome reports 40 ms) and Chrome's audio jitter buffer (30 ms, target 20 ms). The remote listener also hears their own output latency.
+- Video latency: unchanged. The video jitter buffer was 5–10 ms with audio and 13 ms without, so lip sync doesn't hold the video back.
+- CPU: the audio branch alone uses 0.6% of one core. With the full agent the difference is lost in noise (0.6–7% with audio, 0.8–4.2% without).
+- Autoplay: Chrome's user activation from clicking Connect covers unmuted playback. Without activation, Chrome blocks unmuted `play()`, which would stop the video too. The client should fall back to muted and show the mute toggle as muted.
+- Not tested: A/V offset measured on screen (the test browser was hidden), changing or muting the output device, a viewer on another machine.
 
 ### v2.0 scope: orchprox
 
