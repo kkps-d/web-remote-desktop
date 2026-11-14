@@ -1,22 +1,34 @@
-// Used by the streaming session from the next phase on; each allow goes once its module is used.
+mod encoders;
+// Used from a later phase on; each allow goes once its module is fully used.
 #[allow(dead_code)]
 mod input;
-#[allow(dead_code)]
 mod platform;
 #[allow(dead_code)]
 mod sdp;
+mod session;
+mod sessions;
 #[allow(dead_code)]
 mod settings;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::Arc;
 
 use axum::Router;
-use axum::http::header::LOCATION;
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::header::{CONTENT_TYPE, LOCATION};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
 use socket2::{Domain, Protocol, Socket, Type};
 use tower_http::cors::{AllowHeaders, AllowMethods, Any, CorsLayer};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+use crate::encoders::EncoderCatalog;
+use crate::session::StartError;
+use crate::sessions::ViewerSessions;
 
 const DEFAULT_PORT: u16 = 8080;
 
@@ -40,6 +52,14 @@ async fn main() {
         eprintln!("Could not initialize GStreamer: {error}");
         std::process::exit(1);
     }
+    // Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
+    let sessions = match EncoderCatalog::detect() {
+        Ok(encoders) => ViewerSessions::new(encoders),
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
+    };
 
     // The web client is hosted on a different origin, and needs the Location header to end its session.
     // Requested headers and methods are echoed back like ASP.NET's AllowAnyHeader and
@@ -49,7 +69,12 @@ async fn main() {
         .allow_methods(AllowMethods::mirror_request())
         .allow_headers(AllowHeaders::mirror_request())
         .expose_headers([LOCATION]);
-    let app = Router::new().layer(cors);
+    // WHEP-style signaling: POST an SDP offer, get the SDP answer and a session URL back.
+    let app = Router::new()
+        .route("/offer", post(offer))
+        .route("/sessions/{id}", get(info).delete(stop))
+        .layer(cors)
+        .with_state(sessions.clone());
 
     let listener = match listen_any_ip(port) {
         Ok(listener) => listener,
@@ -66,6 +91,63 @@ async fn main() {
         })
         .await
         .expect("the HTTP server failed");
+    sessions.shutdown();
+}
+
+async fn offer(
+    State(sessions): State<Arc<ViewerSessions>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok());
+    if !content_type.is_some_and(|value| value.starts_with("application/sdp")) {
+        let message = "Expected Content-Type: application/sdp";
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, message).into_response();
+    }
+
+    let offer = String::from_utf8_lossy(&body).into_owned();
+    // Session setup blocks on GStreamer for up to a few seconds; keep it off the async workers.
+    let started = tokio::task::spawn_blocking(move || sessions.start(&offer))
+        .await
+        .unwrap_or_else(|panic| Err(StartError::Failed(panic.to_string())));
+    match started {
+        Ok((id, answer)) => {
+            let headers = [
+                (LOCATION, format!("/sessions/{id}")),
+                (CONTENT_TYPE, "application/sdp".into()),
+            ];
+            (StatusCode::CREATED, headers, answer).into_response()
+        }
+        Err(StartError::InvalidOffer(message)) => {
+            (StatusCode::BAD_REQUEST, message).into_response()
+        }
+        Err(StartError::Failed(message)) => {
+            error!("Failed to start a session: {message}");
+            let message = format!("Could not start the stream: {message}");
+            (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+        }
+    }
+}
+
+// The source resolution, current stream settings (resolution, frame rate, bitrate, encoder)
+// and the encoders this computer can use.
+async fn info(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> Response {
+    match sessions.info(&id) {
+        Some(info) => axum::Json(info).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn stop(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> StatusCode {
+    // Stopping waits for the pipeline to shut down.
+    let stopped = tokio::task::spawn_blocking(move || sessions.stop(&id)).await;
+    if stopped.unwrap_or(false) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
 }
 
 /// Reads `--port N` or `--port=N`. The name is case-insensitive, so the C# agent's `--Port` works too.

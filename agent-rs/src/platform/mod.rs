@@ -3,3 +3,6 @@
 
 #[cfg(windows)]
 mod windows;
+// `self::` because a bare `windows` would also name the `windows` crate.
+#[cfg(windows)]
+pub use self::windows::*;

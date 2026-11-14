@@ -12,6 +12,12 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "agent"],
       "port": 8080
+    },
+    {
+      "name": "agent-rs",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": ["run", "--manifest-path", "agent-rs/Cargo.toml"],
+      "port": 8080
     }
   ]
 }

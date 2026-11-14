@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 axum = "0.8.9"
 gstreamer = "0.25"
+gstreamer-sdp = "0.25"
+gstreamer-webrtc = "0.25"
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -14,3 +16,7 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "s
 tower-http = { version = "0.7.1", features = ["cors"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62.2", features = ["Win32_Graphics_Gdi"] }
