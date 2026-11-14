@@ -1,2 +1,9 @@
 bin/
 obj/
+.vs/
+*.user
+
+# Local Claude Code files
+/.claude/worktrees/
+/.claude/scheduled_tasks.lock
+/.claude/settings.local.json
