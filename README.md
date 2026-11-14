@@ -27,3 +27,15 @@ npm run dev
 ```
 
 Open http://localhost:5173 and enter the agent's address (e.g. `192.168.1.20`). `npm run build` produces a static site in `client/dist`; serve it over plain HTTP, since HTTPS pages can't reach the HTTP agent.
+
+## Testing
+
+```bash
+dotnet test agent.Tests
+```
+
+```bash
+npm --prefix client test
+```
+
+Stop a running agent first; its build output is locked while it runs.

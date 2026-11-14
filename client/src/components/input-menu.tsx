@@ -12,8 +12,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { INPUT_RATES_HZ, type InputSettings } from "@/hooks/use-remote-input"
 import type { PointerMode } from "@/lib/pointer-input"
+import { INPUT_RATES_HZ, type InputSettings } from "@/lib/saved-settings"
 
 interface InputMenuProps extends InputSettings {
   disabled: boolean

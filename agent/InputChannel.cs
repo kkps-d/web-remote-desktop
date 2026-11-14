@@ -61,50 +61,61 @@ sealed class InputChannel : IDisposable
         g_signal_connect_data(newChannel, "on-message-string", onMessage, IntPtr.Zero, IntPtr.Zero, 0);
     }
 
-    void OnMessage(IntPtr source, IntPtr textPtr, IntPtr userData)
+    void OnMessage(IntPtr source, IntPtr textPtr, IntPtr userData) =>
+        Receive(Marshal.PtrToStringUTF8(textPtr) ?? "", injector, setStreamCursor, logger, sessionId);
+
+    /// <summary>
+    /// Applies one message from the viewer, logging a bad message instead of throwing: GStreamer
+    /// calls this from native code, where an escaping exception would end the agent.
+    /// </summary>
+    internal static void Receive(string text, InputInjector injector, Action<bool> setStreamCursor, ILogger logger, string sessionId)
     {
-        var text = Marshal.PtrToStringUTF8(textPtr) ?? "";
         try
         {
-            using var json = JsonDocument.Parse(text);
-            var message = json.RootElement;
-            switch (message.GetProperty("type").GetString())
-            {
-                case "move":
-                    injector.MoveTo(message.GetProperty("x").GetDouble(), message.GetProperty("y").GetDouble());
-                    break;
-                case "moveBy":
-                    injector.MoveBy(message.GetProperty("dx").GetInt32(), message.GetProperty("dy").GetInt32());
-                    break;
-                case "button":
-                    injector.Button(message.GetProperty("button").GetInt32(), message.GetProperty("down").GetBoolean());
-                    break;
-                case "wheel":
-                    injector.Scroll(message.GetProperty("dx").GetInt32(), message.GetProperty("dy").GetInt32());
-                    break;
-                case "key":
-                    var code = message.GetProperty("code").GetString() ?? throw new FormatException("The key code is null.");
-                    injector.Key(code, message.GetProperty("down").GetBoolean());
-                    break;
-                case "releaseAll":
-                    injector.ReleaseAll();
-                    break;
-                case "cursor":
-                    setStreamCursor(message.GetProperty("visible").GetBoolean());
-                    break;
-                default:
-                    logger.LogWarning("Session {Id}: unknown input message {Text}", sessionId, text);
-                    break;
-            }
+            if (!Apply(text, injector, setStreamCursor))
+                logger.LogWarning("Session {Id}: unknown input message {Text}", sessionId, text);
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
             logger.LogWarning("Session {Id}: invalid input message {Text}: {Error}", sessionId, text, ex.Message);
         }
-        // GStreamer calls this from native code, where an escaping exception would end the agent.
         catch (Exception ex)
         {
             logger.LogError(ex, "Session {Id}: failed to handle input message {Text}", sessionId, text);
+        }
+    }
+
+    // Returns false for an unknown type; throws if the message is malformed.
+    static bool Apply(string text, InputInjector injector, Action<bool> setStreamCursor)
+    {
+        using var json = JsonDocument.Parse(text);
+        var message = json.RootElement;
+        switch (message.GetProperty("type").GetString())
+        {
+            case "move":
+                injector.MoveTo(message.GetProperty("x").GetDouble(), message.GetProperty("y").GetDouble());
+                return true;
+            case "moveBy":
+                injector.MoveBy(message.GetProperty("dx").GetInt32(), message.GetProperty("dy").GetInt32());
+                return true;
+            case "button":
+                injector.Button(message.GetProperty("button").GetInt32(), message.GetProperty("down").GetBoolean());
+                return true;
+            case "wheel":
+                injector.Scroll(message.GetProperty("dx").GetInt32(), message.GetProperty("dy").GetInt32());
+                return true;
+            case "key":
+                var code = message.GetProperty("code").GetString() ?? throw new FormatException("The key code is null.");
+                injector.Key(code, message.GetProperty("down").GetBoolean());
+                return true;
+            case "releaseAll":
+                injector.ReleaseAll();
+                return true;
+            case "cursor":
+                setStreamCursor(message.GetProperty("visible").GetBoolean());
+                return true;
+            default:
+                return false;
         }
     }
 

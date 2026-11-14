@@ -3,16 +3,8 @@ import { useEffect, useMemo, useState, type RefObject } from "react"
 import type { AgentConnection } from "@/lib/agent-connection"
 import { createInputSender } from "@/lib/input-sender"
 import { attachKeyboardInput } from "@/lib/keyboard-input"
-import { attachPointerInput, type PointerMode } from "@/lib/pointer-input"
-
-export const INPUT_RATES_HZ = [125, 250, 500, 1000]
-
-const INPUT_SETTINGS_KEY = "inputSettings"
-
-export interface InputSettings {
-  mode: PointerMode
-  rateHz: number
-}
+import { attachPointerInput } from "@/lib/pointer-input"
+import { readInputSettings, saveInputSettings, type InputSettings } from "@/lib/saved-settings"
 
 interface RemoteInputOptions extends InputSettings {
   connection?: AgentConnection
@@ -66,19 +58,10 @@ export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard
 
 /** Pointer mode and send rate, remembered across visits. Defaults to absolute at 125 Hz. */
 export function useInputSettings() {
-  const [settings, setSettings] = useState<InputSettings>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(INPUT_SETTINGS_KEY) ?? "null")
-      if ((saved?.mode === "absolute" || saved?.mode === "relative") && INPUT_RATES_HZ.includes(saved?.rateHz))
-        return saved
-    } catch {
-      // A malformed saved value falls back to the defaults.
-    }
-    return { mode: "absolute", rateHz: 125 }
-  })
+  const [settings, setSettings] = useState(readInputSettings)
 
   useEffect(() => {
-    localStorage.setItem(INPUT_SETTINGS_KEY, JSON.stringify(settings))
+    saveInputSettings(settings)
   }, [settings])
 
   return [settings, setSettings] as const

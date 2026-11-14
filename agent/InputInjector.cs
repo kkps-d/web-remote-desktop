@@ -19,6 +19,10 @@ sealed class InputInjector
     readonly Lock gate = new();
     readonly HashSet<int> heldButtons = [];
     readonly HashSet<string> heldKeys = [];
+    readonly Action<Input> send;
+
+    /// <summary>Sends with SendInput, or with <paramref name="send"/> instead (for tests).</summary>
+    public InputInjector(Action<Input>? send = null) => this.send = send ?? SendOne;
 
     /// <summary>Moves to a position given as 0–1 fractions of the primary display.</summary>
     public void MoveTo(double x, double y)
@@ -87,39 +91,43 @@ sealed class InputInjector
     // The process is per-monitor DPI aware (see Program), so this is the primary display in physical pixels.
     static (int Width, int Height) DisplaySize() => (GetSystemMetrics(ScreenWidth), GetSystemMetrics(ScreenHeight));
 
-    // Absolute coordinates span 0–65535 over the primary display; aiming at the pixel's center
-    // keeps Windows' truncation from landing on the pixel before it.
-    static void MoveToPixel(int x, int y, int width, int height)
+    void MoveToPixel(int x, int y, int width, int height)
+    {
+        var (dx, dy) = AbsoluteCoordinates(x, y, width, height);
+        SendMouse(new MouseInput { Dx = dx, Dy = dy, Flags = MouseMove | MouseAbsolute });
+    }
+
+    /// <summary>
+    /// SendInput's absolute coordinates for a pixel, clamped to the display. They span 0–65535
+    /// over the primary display; aiming at the pixel's center keeps Windows' truncation from
+    /// landing on the pixel before it.
+    /// </summary>
+    internal static (int X, int Y) AbsoluteCoordinates(int x, int y, int width, int height)
     {
         x = Math.Clamp(x, 0, width - 1);
         y = Math.Clamp(y, 0, height - 1);
-        SendMouse(new MouseInput
-        {
-            Dx = (int)((x + 0.5) * 65536 / width),
-            Dy = (int)((y + 0.5) * 65536 / height),
-            Flags = MouseMove | MouseAbsolute,
-        });
+        return ((int)((x + 0.5) * 65536 / width), (int)((y + 0.5) * 65536 / height));
     }
 
-    static void SendMouse(MouseInput mouse) => Send(new Input { Type = InputMouse, Data = new InputData { Mouse = mouse } });
+    void SendMouse(MouseInput mouse) => send(new Input { Type = InputMouse, Data = new InputData { Mouse = mouse } });
 
-    static void SendKey(ScanCodes.Key key, bool down)
+    void SendKey(ScanCodes.Key key, bool down)
     {
         var keyboard = key.VirtualKey != 0
             ? new KeyboardInput { VirtualKey = key.VirtualKey }
             : new KeyboardInput { ScanCode = key.ScanCode, Flags = KeyScanCode | (key.Extended ? KeyExtended : 0) };
         if (!down) keyboard.Flags |= KeyUp;
-        Send(new Input { Type = InputKeyboard, Data = new InputData { Keyboard = keyboard } });
+        send(new Input { Type = InputKeyboard, Data = new InputData { Keyboard = keyboard } });
     }
 
-    static void Send(Input input)
+    static void SendOne(Input input)
     {
         // Fails when the foreground window belongs to a more privileged process (UIPI); nothing to do then.
         SendInput(1, [input], Marshal.SizeOf<Input>());
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct MouseInput
+    internal struct MouseInput
     {
         public int Dx, Dy, MouseData;
         public uint Flags, Time;
@@ -127,7 +135,7 @@ sealed class InputInjector
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct KeyboardInput
+    internal struct KeyboardInput
     {
         public ushort VirtualKey, ScanCode;
         public uint Flags, Time;
@@ -135,14 +143,14 @@ sealed class InputInjector
     }
 
     [StructLayout(LayoutKind.Explicit)]
-    struct InputData
+    internal struct InputData
     {
         [FieldOffset(0)] public MouseInput Mouse;
         [FieldOffset(0)] public KeyboardInput Keyboard;
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct Input
+    internal struct Input
     {
         public uint Type;
         public InputData Data;

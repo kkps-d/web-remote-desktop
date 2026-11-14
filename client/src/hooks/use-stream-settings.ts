@@ -1,22 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 
-import {
-  scaleToHeight,
-  type AgentConnection,
-  type StreamInfo,
-  type StreamSettings,
-} from "@/lib/agent-connection"
-
-const SAVED_SETTINGS_KEY = "streamSettings"
-
-// Resolution is saved as a height (null = native) so it adapts to each agent's source size.
-// Encoder is optional because settings saved before the encoder picker don't have one.
-interface SavedSettings {
-  height: number | null
-  framerate: number
-  bitrateKbps: number
-  encoder?: string
-}
+import type { AgentConnection, StreamInfo, StreamSettings } from "@/lib/agent-connection"
+import { readStreamSettings, resolveSavedSettings, saveStreamSettings } from "@/lib/saved-settings"
 
 // Tagging state with its connection means a new connection starts empty without resetting state in an effect.
 interface State {
@@ -42,7 +27,7 @@ export function useStreamSettings(connection?: AgentConnection) {
         return { error: errorMessage(error) }
       }
 
-      const saved = readSavedSettings()
+      const saved = readStreamSettings()
       if (!saved) return { info }
       try {
         return { info: await connection.updateStreamSettings(resolveSavedSettings(saved, info)) }
@@ -64,7 +49,7 @@ export function useStreamSettings(connection?: AgentConnection) {
       try {
         const info = await connection.updateStreamSettings(change)
         setState({ connection, info })
-        saveSettings(info)
+        saveStreamSettings(info)
       } catch (error) {
         setState((previous) => ({ ...previous, connection, error: errorMessage(error) }))
       }
@@ -73,46 +58,6 @@ export function useStreamSettings(connection?: AgentConnection) {
   )
 
   return { info: current?.info, error: current?.error, update }
-}
-
-/**
- * Turns saved settings into concrete ones for this agent. Heights at or above the source mean
- * native, and an encoder this agent can't run is left out so it keeps its default.
- */
-function resolveSavedSettings(saved: SavedSettings, { source, encoders }: StreamInfo): Partial<StreamSettings> {
-  const size = saved.height === null || saved.height >= source.height ? source : scaleToHeight(source, saved.height)
-  const encoderAvailable = encoders.some((encoder) => encoder.id === saved.encoder && encoder.available)
-  return {
-    ...size,
-    framerate: saved.framerate,
-    bitrateKbps: saved.bitrateKbps,
-    ...(encoderAvailable && { encoder: saved.encoder }),
-  }
-}
-
-function readSavedSettings(): SavedSettings | undefined {
-  try {
-    const saved = JSON.parse(localStorage.getItem(SAVED_SETTINGS_KEY) ?? "null")
-    if (
-      (saved?.height === null || Number.isInteger(saved?.height)) &&
-      Number.isInteger(saved?.framerate) &&
-      Number.isInteger(saved?.bitrateKbps) &&
-      (saved?.encoder === undefined || typeof saved.encoder === "string")
-    )
-      return saved
-  } catch {
-    // A malformed saved value falls back to the agent's defaults.
-  }
-}
-
-function saveSettings({ source, settings }: StreamInfo) {
-  const saved: SavedSettings = {
-    height: settings.height === source.height ? null : settings.height,
-    framerate: settings.framerate,
-    bitrateKbps: settings.bitrateKbps,
-    encoder: settings.encoder,
-  }
-  localStorage.setItem(SAVED_SETTINGS_KEY, JSON.stringify(saved))
 }
 
 function errorMessage(error: unknown) {

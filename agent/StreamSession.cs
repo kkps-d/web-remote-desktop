@@ -243,48 +243,17 @@ sealed class StreamSession : IDisposable
     /// <summary>Applies the given settings while streaming. Null fields keep their current value.</summary>
     public void Update(StreamSettingsUpdate update)
     {
-        if ((update.Width is null) != (update.Height is null))
-            throw new InvalidSettingsException("Width and height must be set together.");
-
-        var source = SourceResolution;
-        var next = new StreamSettings(
-            update.Width ?? Settings.Width,
-            update.Height ?? Settings.Height,
-            update.Framerate ?? Settings.Framerate,
-            update.BitrateKbps ?? Settings.BitrateKbps,
-            update.Encoder ?? Settings.Encoder);
-
-        // The encoder needs even dimensions; upscaling would only cost bandwidth.
-        if (next.Width < MinDimension || next.Height < MinDimension || next.Width > source.Width ||
-            next.Height > source.Height || next.Width % 2 != 0 || next.Height % 2 != 0)
-            throw new InvalidSettingsException(
-                $"Resolution must be even, at least {MinDimension} px and no larger than {source.Width}×{source.Height}.");
-        if (next.Framerate is < 1 or > MaxFramerate)
-            throw new InvalidSettingsException($"Frame rate must be 1–{MaxFramerate} fps.");
-        if (next.BitrateKbps is < MinBitrateKbps or > MaxBitrateKbps)
-            throw new InvalidSettingsException($"Bitrate must be {MinBitrateKbps}–{MaxBitrateKbps} kbps.");
-        if (!encoders.IsAvailable(next.Encoder))
-            throw new InvalidSettingsException($"The {next.Encoder} encoder isn't available on this computer.");
-
-        // An encoder given a size outside its limits fails and ends the session, so check first.
-        var size = new Resolution(next.Width, next.Height);
-        var currentSize = new Resolution(Settings.Width, Settings.Height);
-        var limits = encoders.Limits(next.Encoder);
-        if (!limits.Fits(size))
-            throw new InvalidSettingsException($"{encoders.Label(next.Encoder)} supports {limits}.");
+        var (next, switchFirst) = PlanUpdate(Settings, update, SourceResolution,
+            id => encoders.IsAvailable(id) ? encoders.Limits(id) : null, encoders.Label);
         if (next == Settings) return;
 
-        // Every step must leave the running encoder with a size it accepts: switch encoder first
-        // if the new one takes the current size, otherwise resize first.
+        var size = new Resolution(next.Width, next.Height);
         var encoderChanged = next.Encoder != Settings.Encoder;
-        var switchFirst = encoderChanged && limits.Fits(currentSize);
-        if (encoderChanged && !switchFirst && !encoders.Limits(Settings.Encoder).Fits(size))
-            throw new InvalidSettingsException("Change the resolution and the encoder separately.");
 
         // A new encoder starts with the new bitrate. The others pick it up on their next frame.
         if (switchFirst)
             SwapEncoder(next.Encoder, next.BitrateKbps);
-        if (size != currentSize || next.Framerate != Settings.Framerate)
+        if (size != new Resolution(Settings.Width, Settings.Height) || next.Framerate != Settings.Framerate)
         {
             using var output = Native.GetByName(pipeline, "output");
             using var caps = Caps.FromString(OutputCaps(size, next.Framerate));
@@ -297,6 +266,55 @@ sealed class StreamSession : IDisposable
 
         Settings = next;
         logger.LogInformation("Session {Id} settings changed to {Settings}", Id, next);
+    }
+
+    /// <summary>Checked new settings, and whether to switch the encoder before resizing.</summary>
+    public record SettingsPlan(StreamSettings Next, bool SwitchEncoderFirst);
+
+    /// <summary>
+    /// Merges an update into the current settings and checks that it can be applied, or throws
+    /// <see cref="InvalidSettingsException"/>. <paramref name="limitsOf"/> is null for an encoder
+    /// that isn't available.
+    /// </summary>
+    public static SettingsPlan PlanUpdate(StreamSettings current, StreamSettingsUpdate update, Resolution source,
+        Func<string, SizeLimits?> limitsOf, Func<string, string> labelOf)
+    {
+        if ((update.Width is null) != (update.Height is null))
+            throw new InvalidSettingsException("Width and height must be set together.");
+
+        var next = new StreamSettings(
+            update.Width ?? current.Width,
+            update.Height ?? current.Height,
+            update.Framerate ?? current.Framerate,
+            update.BitrateKbps ?? current.BitrateKbps,
+            update.Encoder ?? current.Encoder);
+
+        // The encoder needs even dimensions; upscaling would only cost bandwidth.
+        if (next.Width < MinDimension || next.Height < MinDimension || next.Width > source.Width ||
+            next.Height > source.Height || next.Width % 2 != 0 || next.Height % 2 != 0)
+            throw new InvalidSettingsException(
+                $"Resolution must be even, at least {MinDimension} px and no larger than {source.Width}×{source.Height}.");
+        if (next.Framerate is < 1 or > MaxFramerate)
+            throw new InvalidSettingsException($"Frame rate must be 1–{MaxFramerate} fps.");
+        if (next.BitrateKbps is < MinBitrateKbps or > MaxBitrateKbps)
+            throw new InvalidSettingsException($"Bitrate must be {MinBitrateKbps}–{MaxBitrateKbps} kbps.");
+        if (limitsOf(next.Encoder) is not { } limits)
+            throw new InvalidSettingsException($"The {next.Encoder} encoder isn't available on this computer.");
+
+        // An encoder given a size outside its limits fails and ends the session, so check first.
+        var size = new Resolution(next.Width, next.Height);
+        var currentSize = new Resolution(current.Width, current.Height);
+        if (!limits.Fits(size))
+            throw new InvalidSettingsException($"{labelOf(next.Encoder)} supports {limits}.");
+        if (next == current) return new(next, false);
+
+        // Every step must leave the running encoder with a size it accepts: switch encoder first
+        // if the new one takes the current size, otherwise resize first.
+        var encoderChanged = next.Encoder != current.Encoder;
+        var switchFirst = encoderChanged && limits.Fits(currentSize);
+        if (encoderChanged && !switchFirst && limitsOf(current.Encoder)?.Fits(size) != true)
+            throw new InvalidSettingsException("Change the resolution and the encoder separately.");
+        return new(next, switchFirst);
     }
 
     /// <summary>Finds the browser's constrained-baseline, packetization-mode=1 H.264 codec in the offer.</summary>

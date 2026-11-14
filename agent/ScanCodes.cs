@@ -12,7 +12,7 @@ static class ScanCodes
     public static bool TryGet(string code, out Key key) => Keys.TryGetValue(code, out key);
 
     // PS/2 set 1 scan codes; E0-prefixed keys are marked extended.
-    static readonly Dictionary<string, Key> Keys = new()
+    internal static readonly Dictionary<string, Key> Keys = new()
     {
         ["Escape"] = Basic(0x01),
         ["Digit1"] = Basic(0x02), ["Digit2"] = Basic(0x03), ["Digit3"] = Basic(0x04), ["Digit4"] = Basic(0x05),
