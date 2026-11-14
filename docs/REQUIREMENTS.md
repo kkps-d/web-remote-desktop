@@ -50,6 +50,7 @@ Out of scope for now: Windows service, login screen/UAC capture, multiple monito
 - **v0.5:** capture the desktop on the agent and stream it to the web client. View only, no input.
 - **v1:** v0.5 plus mouse and keyboard input over the data channel.
 - **v1.1:** stream the remote computer's audio to the web client.
+- **v1.15 (optional):** audio capture modes: process loopback, default-device loopback, Steam's virtual speakers, or another output device.
 - **v2.0:** reach agents over the internet through the orchprox.
 - **v3.0:** authentication: clients log in, and agents register with the orchprox using a secret.
 
@@ -170,6 +171,23 @@ Tested on localhost with the client muted, so the loopback didn't capture its ow
 - CPU: the audio branch alone uses 0.6% of one core. With the full agent the difference is lost in noise (0.6–7% with audio, 0.8–4.2% without).
 - Autoplay: clicking Connect counts as user activation, so unmuted playback starts, also after a reload on the second device. Without activation Chrome blocks unmuted `play()`, which would stop the video too.
 - Not tested: whether the sound itself (not just packets) continued while on the other device and while muted, because the client was muted to avoid echo.
+
+### v1.15 scope: audio capture modes (optional)
+
+Optional: build it only if v1.1's process loopback falls short in practice, e.g. its latency or the host's speakers playing during a session.
+
+Streaming hosts like Sunshine send the host's audio to a virtual output device, so the host stays silent and headless PCs work. We reuse existing devices instead of writing a driver.
+
+- Modes:
+  - **Process loopback** (default): as in v1.1. Nothing to install; the host's speakers keep playing; survives output device switches. About 135 ms in the spike.
+  - **Default-device loopback**: about 40 ms lower latency (96 ms in the spike). The agent listens for default-device changes (`IMMNotificationClient`, documented) and restarts the audio branch on the new device, so audio drops briefly at a switch. Captures after the Windows volume, so a muted host streams silence.
+  - **Steam Streaming Speakers**: the virtual device installed with Steam. The host goes silent, PCs without an audio device work, and latency drops by about 40 ms (default-device loopback instead of process loopback). Unavailable, with the reason, when Steam's driver isn't installed.
+  - **Output device**: any other installed output device, e.g. VB-Cable.
+- The device modes make the chosen device the Windows default for the session, through the undocumented `IPolicyConfig` COM interface (as Sunshine does), and capture it with default-device loopback.
+  - The previous default is restored when the session ends. The agent saves it to a file first and restores it at startup if it crashed mid-session.
+  - If the user switches the default device during the session, the stream goes silent; it doesn't fail.
+- **TBD:** whether the mode is an agent setting or a client stream setting.
+- Out of scope: writing, signing or bundling an audio driver.
 
 ### v2.0 scope: orchprox
 
