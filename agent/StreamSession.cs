@@ -140,10 +140,14 @@ sealed class StreamSession : IDisposable
         "webrtcbin name=webrtc bundle-policy=max-bundle" +
         (opusPayloadType is { } pt ? "  " + AudioDescription(pt) : "");
 
-    // SPIKE: loopback capture of the default output device, linked after the video so it gets
-    // webrtcbin's sink_1 and matches the offer's audio m-line.
+    // SPIKE: captures every app's audio but the agent's, linked after the video so it gets
+    // webrtcbin's sink_1 and matches the offer's audio m-line. Process loopback keeps working when
+    // the output device switches; default-device loopback stops. The source would otherwise
+    // provide the pipeline clock, which stalls (and freezes the video) on a switch.
     static string AudioDescription(int payloadType) =>
-        "wasapi2src name=audio loopback=true low-latency=true ! audioconvert ! audioresample ! " +
+        "wasapi2src name=audio loopback=true low-latency=true provide-clock=false continue-on-error=true " +
+        $"loopback-mode=exclude-process-tree loopback-target-pid={Environment.ProcessId} ! " +
+        "audioconvert ! audioresample ! " +
         "audio/x-raw,rate=48000,channels=2 ! opusenc name=opus bitrate=128000 frame-size=10 ! " +
         $"rtpopuspay pt={payloadType} ! webrtc.";
 

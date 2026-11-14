@@ -144,26 +144,32 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 
 ### v1.1 scope: audio
 
-- Agent: capture what the default output device plays (WASAPI loopback, `wasapi2src loopback=true`), encode it as Opus and send it on the same `webrtcbin` connection as the video.
+- Agent: capture what every app plays (WASAPI process loopback, excluding the agent's own process), encode it as Opus and send it on the same `webrtcbin` connection as the video.
+  - Process loopback follows output device switches; plain loopback of the default device stops for good on a switch.
+  - The audio source must not provide the pipeline clock: when the device switches, that clock stalls and freezes the video.
   - Like the video, the RTP caps must match the browser's offer: use its Opus payload type.
 - Client: adds a receive-only audio transceiver to the offer and plays the track with the video.
   - Mute toggle in the toolbar, remembered in the browser.
+  - If the browser blocks unmuted playback, play muted and show the toggle as muted.
 - Audio is one-way: no microphone from the client.
-- **TBD:** whether the default output device changing mid-session is followed, and what happens when it is muted (`loopback-silence-on-device-mute`).
 
 #### Audio spike results (branch `spike/audio`)
 
 Pipeline branch, linked after the video so it gets `webrtcbin`'s `sink_1` and matches the offer's audio m-line:
-`wasapi2src loopback=true low-latency=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt=<offer's> ! webrtc.`
-Tested on localhost with Chrome's video element muted, so the loopback didn't capture its own playback:
+`wasapi2src loopback=true loopback-mode=exclude-process-tree loopback-target-pid=<agent's> low-latency=true provide-clock=false continue-on-error=true ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt=<offer's> ! webrtc.`
+Tested on localhost with the client muted, so the loopback didn't capture its own playback, and from a second device on the LAN:
 
-- Works first try: the answer has `OPUS/48000/2` as `sendonly`, and both tracks share one `msid` stream, so Chrome lip-syncs them.
-- Silence: loopback keeps producing samples when nothing plays, so the caps wait in `Answer()` and the stream need no special handling. A steady 100 packets/s, 129 kbps, no concealment.
-- Latency: 96 ms (95–98 over 5 runs) from a beep played on the agent machine to its arrival in the browser. That includes the agent's output path (Chrome reports 40 ms) and Chrome's audio jitter buffer (30 ms, target 20 ms). The remote listener also hears their own output latency.
+- Works first try: the answer has `OPUS/48000/2` as `sendonly`, and both tracks share one `msid` stream, so Chrome lip-syncs them. Lip sync looked right from the second device.
+- Silence: both loopback modes keep producing samples when nothing plays, so the caps wait in `Answer()` needs no change. A steady 100 packets/s, 129 kbps, no concealment.
+- Output device switch:
+  - Default-device loopback (no `loopback-mode`): the stream froze, video included, with no pipeline error. With `provide-clock=false` the video kept going, but audio stopped at the switch and never came back.
+  - Process loopback: audio packets never dropped across switching, muting and switching back (15 min). A beep afterwards came through at full level.
+- Level: process loopback captures before the Windows volume and mute (a 0.15 beep arrived at 0.155). Default-device loopback captured after the volume (0.03).
+- Latency, from a beep played on the agent machine to its arrival in the browser: 96 ms with default-device loopback, 135–138 ms with process loopback. It peaked at 172 ms right after a device switch, then settled within 30 s. Includes the agent's output path (40 ms reported by Chrome) and Chrome's audio jitter buffer (30–38 ms). The remote listener also hears their own output latency.
 - Video latency: unchanged. The video jitter buffer was 5–10 ms with audio and 13 ms without, so lip sync doesn't hold the video back.
 - CPU: the audio branch alone uses 0.6% of one core. With the full agent the difference is lost in noise (0.6–7% with audio, 0.8–4.2% without).
-- Autoplay: Chrome's user activation from clicking Connect covers unmuted playback. Without activation, Chrome blocks unmuted `play()`, which would stop the video too. The client should fall back to muted and show the mute toggle as muted.
-- Not tested: A/V offset measured on screen (the test browser was hidden), changing or muting the output device, a viewer on another machine.
+- Autoplay: clicking Connect counts as user activation, so unmuted playback starts, also after a reload on the second device. Without activation Chrome blocks unmuted `play()`, which would stop the video too.
+- Not tested: whether the sound itself (not just packets) continued while on the other device and while muted, because the client was muted to avoid echo.
 
 ### v2.0 scope: orchprox
 
