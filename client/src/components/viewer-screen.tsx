@@ -10,6 +10,7 @@ import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
 import { LEAVE_SHORTCUT } from "@/lib/keyboard-input"
 import { captureThumbnail, rememberDevice } from "@/lib/recent-devices"
+import { readStorage, writeStorage } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -204,7 +205,7 @@ function useIsFullscreen() {
 function useStatsVisibility() {
   const [visibility, setVisibility] = useState<StatsVisibility>(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(STATS_VISIBILITY_KEY) ?? "null")
+      const saved = JSON.parse(readStorage(STATS_VISIBILITY_KEY) ?? "null")
       if (typeof saved?.basic === "boolean" && typeof saved?.advanced === "boolean") return saved
     } catch {
       // A malformed saved value falls back to the defaults.
@@ -213,7 +214,7 @@ function useStatsVisibility() {
   })
 
   useEffect(() => {
-    localStorage.setItem(STATS_VISIBILITY_KEY, JSON.stringify(visibility))
+    writeStorage(STATS_VISIBILITY_KEY, JSON.stringify(visibility))
   }, [visibility])
 
   return [visibility, setVisibility] as const

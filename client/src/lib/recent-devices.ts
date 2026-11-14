@@ -1,6 +1,7 @@
 // Agents this browser connected to, newest first, with a screenshot thumbnail of each.
 
 import { parseAgentAddress } from "./agent-connection.ts"
+import { readStorage, writeStorage } from "./storage.ts"
 
 const RECENT_DEVICES_KEY = "recentDevices"
 const MAX_DEVICES = 8
@@ -54,7 +55,7 @@ export function parseDevices(raw: string | null): RecentDevice[] {
 }
 
 export function readRecentDevices(): RecentDevice[] {
-  return parseDevices(localStorage.getItem(RECENT_DEVICES_KEY))
+  return parseDevices(readStorage(RECENT_DEVICES_KEY))
 }
 
 export function rememberDevice(address: string, thumbnail?: string) {
@@ -68,11 +69,7 @@ export function forgetDevice(address: string): RecentDevice[] {
 }
 
 function saveDevices(devices: RecentDevice[]) {
-  try {
-    localStorage.setItem(RECENT_DEVICES_KEY, JSON.stringify(devices))
-  } catch {
-    // Storage is full; the list is a convenience, so keep the previous one.
-  }
+  writeStorage(RECENT_DEVICES_KEY, JSON.stringify(devices))
 }
 
 /** A small JPEG of the video's current frame, or undefined before the first frame. */

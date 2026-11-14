@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { parseAgentAddress } from "@/lib/agent-connection"
 import { forgetDevice, readRecentDevices, type RecentDevice } from "@/lib/recent-devices"
+import { readStorage, writeStorage } from "@/lib/storage"
 
 const LAST_ADDRESS_KEY = "lastAgentAddress"
 
@@ -18,14 +19,14 @@ interface ConnectScreenProps {
 }
 
 export function ConnectScreen({ onConnect, error }: ConnectScreenProps) {
-  const [address, setAddress] = useState(() => localStorage.getItem(LAST_ADDRESS_KEY) ?? "")
+  const [address, setAddress] = useState(() => readStorage(LAST_ADDRESS_KEY) ?? "")
   const [addressError, setAddressError] = useState<string>()
   const [devices, setDevices] = useState(readRecentDevices)
 
   function connectTo(target: string) {
     setAddress(target)
     setAddressError(undefined)
-    localStorage.setItem(LAST_ADDRESS_KEY, target)
+    writeStorage(LAST_ADDRESS_KEY, target)
     onConnect(target)
   }
 

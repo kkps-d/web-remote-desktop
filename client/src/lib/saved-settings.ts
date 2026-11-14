@@ -2,6 +2,7 @@
 
 import { scaleToHeight, type StreamInfo, type StreamSettings } from "./agent-connection.ts"
 import type { PointerMode } from "./pointer-input.ts"
+import { readStorage, writeStorage } from "./storage.ts"
 
 const STREAM_SETTINGS_KEY = "streamSettings"
 const INPUT_SETTINGS_KEY = "inputSettings"
@@ -79,7 +80,7 @@ export function readStreamSettings() {
 }
 
 export function saveStreamSettings(info: StreamInfo) {
-  localStorage.setItem(STREAM_SETTINGS_KEY, JSON.stringify(toSavedStreamSettings(info)))
+  writeStorage(STREAM_SETTINGS_KEY, JSON.stringify(toSavedStreamSettings(info)))
 }
 
 export function readInputSettings() {
@@ -87,14 +88,5 @@ export function readInputSettings() {
 }
 
 export function saveInputSettings(settings: InputSettings) {
-  localStorage.setItem(INPUT_SETTINGS_KEY, JSON.stringify(settings))
-}
-
-function readStorage(key: string) {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    // Storage is blocked (a SecurityError), so there are no saved settings.
-    return null
-  }
+  writeStorage(INPUT_SETTINGS_KEY, JSON.stringify(settings))
 }
