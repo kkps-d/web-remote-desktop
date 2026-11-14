@@ -2,8 +2,6 @@ mod encode_timing;
 mod encoders;
 mod input;
 mod platform;
-// The Opus lookup is used once audio streams.
-#[allow(dead_code)]
 mod sdp;
 mod session;
 mod sessions;

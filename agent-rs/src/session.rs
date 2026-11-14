@@ -21,7 +21,7 @@ use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
 use crate::input::InputChannel;
 use crate::platform;
-use crate::sdp::{H264Codec, InvalidOffer};
+use crate::sdp::{H264Codec, InvalidOffer, find_opus_payload_type};
 use crate::settings::{
     DEFAULT_BITRATE_KBPS, DEFAULT_FRAMERATE, InvalidSettings, Resolution, SizeLimits,
     StreamSettings, StreamSettingsUpdate, plan_update,
@@ -138,9 +138,17 @@ impl StreamSession {
         encoders: &EncoderCatalog,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
+        let mut opus_payload_type = find_opus_payload_type(offer_sdp);
+        if opus_payload_type.is_some()
+            && let Some(reason) = platform::audio_unavailable()
+        {
+            warn!("Streaming without audio: {reason}.");
+            opus_payload_type = None;
+        }
         let encoder = encoders.default();
         let size = initial_size(encoders.limits(encoder));
-        let pipeline = gst::parse::launch(&pipeline_description(codec, size))
+        let description = pipeline_description(codec, opus_payload_type, size);
+        let pipeline = gst::parse::launch(&description)
             .map_err(failed)?
             .downcast::<gst::Pipeline>()
             .map_err(|_| failed("The pipeline description is not a pipeline."))?;
@@ -594,17 +602,34 @@ impl Drop for StreamSession {
 // than browsers offer; they accept it (level-asymmetry-allowed=1), so capssetter just relabels
 // the caps. AMF labels its constrained output plain "baseline", so accept both. The encoder bin
 // goes between the two chains; see StreamSession::start.
-fn pipeline_description(codec: &H264Codec, size: Option<Resolution>) -> String {
+fn pipeline_description(
+    codec: &H264Codec,
+    opus_payload_type: Option<u32>,
+    size: Option<Resolution>,
+) -> String {
+    let audio = opus_payload_type.map_or(String::new(), |payload_type| {
+        format!("  {}", audio_description(payload_type))
+    });
     format!(
         "{capture} ! capsfilter name=output caps={caps}  \
          h264parse name=parse ! video/x-h264,profile=(string){{constrained-baseline,baseline}} ! \
          rtph264pay pt={payload_type} config-interval=-1 aggregate-mode=zero-latency ! \
          capssetter caps=\"application/x-rtp,profile-level-id=(string){profile_level_id}\" ! \
-         webrtcbin name=webrtc bundle-policy=max-bundle",
+         webrtcbin name=webrtc bundle-policy=max-bundle{audio}",
         capture = platform::CAPTURE,
         caps = platform::output_caps(size, DEFAULT_FRAMERATE),
         payload_type = codec.payload_type,
         profile_level_id = codec.profile_level_id,
+    )
+}
+
+// Linked after the video, so it gets webrtcbin's sink_1 and matches the offer's audio m-line.
+// Like the video, the RTP caps use the browser's payload type.
+fn audio_description(payload_type: u32) -> String {
+    format!(
+        "{capture} ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! \
+         opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt={payload_type} ! webrtc.",
+        capture = platform::audio_capture(),
     )
 }
 
@@ -656,18 +681,28 @@ mod tests {
             height: 2304,
         };
 
-        assert_eq!(
-            pipeline_description(&codec, Some(size)),
-            "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! \
+        let video = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! \
              capsfilter name=output caps=video/x-raw(memory:D3D11Memory),format=NV12,width=4096,height=2304,framerate=30/1  \
              h264parse name=parse ! video/x-h264,profile=(string){constrained-baseline,baseline} ! \
              rtph264pay pt=106 config-interval=-1 aggregate-mode=zero-latency ! \
              capssetter caps=\"application/x-rtp,profile-level-id=(string)42e01f\" ! \
-             webrtcbin name=webrtc bundle-policy=max-bundle"
-        );
+             webrtcbin name=webrtc bundle-policy=max-bundle";
+        assert_eq!(pipeline_description(&codec, None, Some(size)), video);
         assert!(
-            pipeline_description(&codec, None)
+            pipeline_description(&codec, None, None)
                 .contains("caps=video/x-raw(memory:D3D11Memory),format=NV12,framerate=30/1  ")
+        );
+
+        let audio = format!(
+            "wasapi2src loopback=true loopback-mode=exclude-process-tree loopback-target-pid={} \
+             low-latency=true provide-clock=false continue-on-error=true ! audioconvert ! audioresample ! \
+             audio/x-raw,rate=48000,channels=2 ! opusenc bitrate=128000 frame-size=10 ! \
+             rtpopuspay pt=111 ! webrtc.",
+            std::process::id()
+        );
+        assert_eq!(
+            pipeline_description(&codec, Some(111), Some(size)),
+            format!("{video}  {audio}")
         );
     }
 }

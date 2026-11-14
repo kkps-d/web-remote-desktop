@@ -7,7 +7,9 @@ mod touch;
 pub use input::{InputInjector, use_physical_pixels};
 pub use touch::TouchInjector;
 
+use ::windows::Wdk::System::SystemServices::RtlGetVersion;
 use ::windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
+use ::windows::Win32::System::SystemInformation::OSVERSIONINFOW;
 use ::windows::core::PCWSTR;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -17,6 +19,36 @@ use crate::settings::Resolution;
 
 /// Captures the primary monitor on the GPU, ready for the output capsfilter.
 pub const CAPTURE: &str = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert";
+
+/// Captures what every app plays except the agent itself (process loopback), for the audio
+/// branch. Unlike loopback of the default device, it keeps working when the output device
+/// switches, at about 40 ms more latency; see REQUIREMENTS.md. Without provide-clock=false the
+/// source would be the pipeline clock, which stalls on a device switch and freezes the video too.
+pub fn audio_capture() -> String {
+    format!(
+        "wasapi2src loopback=true loopback-mode=exclude-process-tree loopback-target-pid={} \
+         low-latency=true provide-clock=false continue-on-error=true",
+        std::process::id()
+    )
+}
+
+/// Why audio can't stream on this computer, or None if it can.
+pub fn audio_unavailable() -> Option<&'static str> {
+    // GetVersionEx reports an older version to programs without a compatibility manifest, so
+    // ask ntdll.
+    let mut version = OSVERSIONINFOW {
+        dwOSVersionInfoSize: size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: version is a valid OSVERSIONINFOW with its size set, as the API requires.
+    let _ = unsafe { RtlGetVersion(&mut version) };
+    let build = (
+        version.dwMajorVersion,
+        version.dwMinorVersion,
+        version.dwBuildNumber,
+    );
+    (build < (10, 0, 20348)).then_some("process loopback needs Windows build 20348 or later")
+}
 
 /// Shows or hides the cursor in the capture named "capture" in `CAPTURE`, while streaming.
 pub fn show_cursor(capture: &gst::Element, visible: bool) {
