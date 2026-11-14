@@ -10,7 +10,7 @@ See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds
 
 ## Running
 
-**Agent** (Windows): there are two agents with the same API. The Rust agent in `agent-rs/` replaces the C# agent in `agent/`, which stays for now. Both need [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28.4+ (MSVC build). Audio needs Windows 10 build 20348 or later (e.g. Windows 11); older builds stream video only.
+**Agent** (Windows): there are two agents with the same API. The Rust agent in `agent-rs/` replaces the C# agent in `agent/`, which is archived: kept for reference and no longer updated. Both need [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28.4+ (MSVC build). Audio needs Windows 10 build 20348 or later (e.g. Windows 11); older builds stream video only.
 
 Both listen on port 8080 on all interfaces. Run one at a time, or give one another port. Allow the agent through Windows Firewall on private networks.
 

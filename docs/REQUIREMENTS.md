@@ -38,7 +38,7 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
 - Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into `SendInput` calls via P/Invoke.
 - Fallback if `webrtcbin` from C# becomes too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
-- Rust port (`agent-rs/`): the same API, protocol and pipeline with `gstreamer-rs`, which is maintained upstream and suits the planned Linux support (PipeWire, portals). It replaces the C# agent, which stays for now. OS-specific code is under `src/platform/`.
+- Rust port (`agent-rs/`): the same API, protocol and pipeline with `gstreamer-rs`, which is maintained upstream and suits the planned Linux support (PipeWire, portals). It replaces the C# agent, which is archived: kept for reference and no longer updated. OS-specific code is under `src/platform/`.
 
 ### Spike results (`spikes/GstSpike`)
 
