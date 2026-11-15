@@ -8,3 +8,6 @@ agent-rs/target/
 /.claude/worktrees/
 /.claude/scheduled_tasks.lock
 /.claude/settings.local.json
+
+# Local secrets
+/.env-ssh
