@@ -75,7 +75,7 @@ Each step ends with a working agent, a conventional commit and a review.
 
 ### Step 1: video stream (done)
 
-`src/platform/linux/` streams the desktop with x264. Audio is a stub: `audio_unavailable()` returns `Some("not ported yet")`, which makes sessions video-only.
+`src/platform/linux/` streams the desktop with x264.
 
 - **Input route:** the ScreenCast portal for video, and uinput for input in step 2.
 - **Capture:** `platform::Capture` holds an `ashpd` ScreenCast session sharing one monitor, with the cursor embedded, for as long as the stream runs. Closing it removes GNOME's sharing indicator. Stopping sharing from GNOME ends the viewer's session, through `on-disconnect=error`. The pipeline runs `pipewiresrc fd=<fd> path=<node id> keepalive-time=100 on-disconnect=error ! videorate drop-only=true ! videoconvert ! videoscale` into NV12 in system memory.
@@ -107,26 +107,15 @@ sudo usermod -aG input "$USER"   # then reboot
 
 `sudo libinput debug-events` shows the "Web Remote Desktop" devices and what they send. Absolute and touch coordinates cover the whole desktop, which matches the stream with one monitor only.
 
-### Step 3: audio stream
+### Step 3: audio stream (done)
 
-| Name | Linux |
-| --- | --- |
-| `audio_capture` | `pipewiresrc stream-properties="props,stream.capture.sink=true"`, which captures the monitor of the default output |
-| `audio_unavailable` | `None` when PipeWire is reachable, otherwise a reason |
+`audio_capture()` runs `pipewiresrc stream-properties="props,stream.capture.sink=true" provide-clock=false ! audio/x-raw,rate=48000,channels=2`, which captures the monitor of the default output. `audio_unavailable()` returns a reason when GStreamer's PipeWire plugin or the PipeWire socket is missing.
 
-This captured a test tone on the VM. Try it there: play something while it runs, then play the file back:
-
-```bash
-gst-launch-1.0 -e pipewiresrc stream-properties="props,stream.capture.sink=true" num-buffers=500 ! \
-  audioconvert ! opusenc ! oggmux ! filesink location=/tmp/audio.ogg
-```
-
-Watch for these:
-- **The pipeline clock:** on Windows, `provide-clock=false` stopped the audio source from freezing the video when the output device switched. Check the same with `pipewiresrc`.
-- **Switching output:** check that the stream follows the new default output.
-- **Echo:** viewing on the VM itself echoes, as on Windows, since the monitor includes the browser's playback.
-
-Done when a tone played in the VM reaches the client, and switching the output device doesn't stall video or audio.
+- **Follows the default output:** switching the default output moves the capture to the new one, with no stall in audio or video.
+- **Before the volume:** the monitor captures before the output's volume, so a muted VM still streams audio.
+- **Stereo:** unconstrained, `pipewiresrc` picks mono, hence the caps filter.
+- **The pipeline clock:** without `provide-clock=false`, the audio source would be the pipeline clock, as on Windows.
+- **Echo:** viewing on the VM itself echoes, since the monitor includes the browser's playback. Linux has no equivalent of Windows' process-loopback exclusion.
 
 ## Open questions
 
