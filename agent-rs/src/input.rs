@@ -2,6 +2,8 @@
 //! and how they reach the OS. Held keys, buttons and touches are released when the channel
 //! closes or the session ends.
 
+pub mod touch;
+
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -13,7 +15,15 @@ use serde_json::Value;
 use tracing::{info, warn};
 
 use crate::platform;
-use crate::touch::{TouchBackend, TouchState};
+use touch::{TouchBackend, TouchState};
+
+/// The pixel at a position given as 0–1 fractions of a display, clamped to it.
+pub fn to_pixel(x: f64, y: f64, width: i32, height: i32) -> (i32, i32) {
+    let axis = |fraction: f64, size: i32| {
+        ((fraction.clamp(0.0, 1.0) * size as f64) as i32).clamp(0, size - 1)
+    };
+    (axis(x, width), axis(y, height))
+}
 
 /// Injects input into the OS. Positions and sizes refer to the primary display.
 pub trait InputBackend: Send {
@@ -277,7 +287,14 @@ pub fn parse(text: &str) -> serde_json::Result<InputMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::touch::{Phase, TouchPoint};
+    use touch::{Phase, TouchPoint};
+
+    #[test]
+    fn maps_fractions_to_pixels_within_the_display() {
+        assert_eq!(to_pixel(0.5, 0.25, 1920, 1080), (960, 270));
+        assert_eq!(to_pixel(1.0, 1.0, 1920, 1080), (1919, 1079));
+        assert_eq!(to_pixel(-1.0, 2.0, 1920, 1080), (0, 1079));
+    }
 
     #[test]
     fn parses_every_message_type() {

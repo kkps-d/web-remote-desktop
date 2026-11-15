@@ -39,3 +39,12 @@ These instructions apply throughout this repository. Follow [DESIGN_GUIDELINES.m
 ## Live tests
 
 - You may do live tests if needed without prompting the user
+
+## Linux VM
+
+There is a linux vm in VMWare workstation player running at localhost with SSH enabled. You may connect to it with the following credentials, or computer use it to control the vmware window. Port is 2222
+
+.env-ssh
+
+- LINUX_VM_USERNAME
+- LINUX_VM_PASSWORD

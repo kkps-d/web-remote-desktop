@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use crate::input::Contact;
+use super::{Contact, to_pixel};
 
 pub const MAX_CONTACTS: u32 = 10;
 
@@ -31,14 +31,6 @@ pub trait TouchBackend: Send {
     /// The primary display's size in pixels.
     fn display_size(&self) -> (i32, i32);
     fn send(&mut self, frame: &[TouchPoint]);
-}
-
-/// The pixel at a position given as 0–1 fractions of a display, clamped to it.
-pub fn to_pixel(x: f64, y: f64, width: i32, height: i32) -> (i32, i32) {
-    let axis = |fraction: f64, size: i32| {
-        ((fraction.clamp(0.0, 1.0) * size as f64) as i32).clamp(0, size - 1)
-    };
-    (axis(x, width), axis(y, height))
 }
 
 pub struct TouchState<B> {
@@ -260,12 +252,5 @@ mod tests {
 
         assert_eq!(touch.backend.0.len(), 2);
         assert_eq!(touch.backend.0[1], [point(0, Canceled, 0, 0)]);
-    }
-
-    #[test]
-    fn maps_fractions_to_pixels_within_the_display() {
-        assert_eq!(to_pixel(0.5, 0.25, 1920, 1080), (960, 270));
-        assert_eq!(to_pixel(1.0, 1.0, 1920, 1080), (1919, 1079));
-        assert_eq!(to_pixel(-1.0, 2.0, 1920, 1080), (0, 1079));
     }
 }

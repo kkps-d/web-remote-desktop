@@ -1,12 +1,12 @@
 mod encode_timing;
 mod encoders;
 mod input;
+mod pipeline;
 mod platform;
 mod sdp;
 mod session;
-mod sessions;
 mod settings;
-mod touch;
+mod viewer_sessions;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -27,8 +27,8 @@ use tracing_subscriber::EnvFilter;
 
 use crate::encoders::EncoderCatalog;
 use crate::session::{StartError, UpdateError};
-use crate::sessions::ViewerSessions;
 use crate::settings::StreamSettingsUpdate;
+use crate::viewer_sessions::ViewerSessions;
 
 const DEFAULT_PORT: u16 = 8080;
 

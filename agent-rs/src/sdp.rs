@@ -1,6 +1,5 @@
 //! Reads the codecs the stream must use from the browser's SDP offer.
 
-use std::fmt;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -8,14 +7,6 @@ use regex::Regex;
 /// The browser's offer can't be answered, e.g. it has no usable codec.
 #[derive(Debug, PartialEq)]
 pub struct InvalidOffer(pub String);
-
-impl fmt::Display for InvalidOffer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for InvalidOffer {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct H264Codec {

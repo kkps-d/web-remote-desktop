@@ -1,9 +1,6 @@
 //! Mouse and keyboard input on the primary display with SendInput.
 
 use ::windows::Win32::Foundation::POINT;
-use ::windows::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
-};
 use ::windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
     KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MOUSE_EVENT_FLAGS,
@@ -11,27 +8,10 @@ use ::windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT, SendInput, VIRTUAL_KEY,
 };
-use ::windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN,
-};
+use ::windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
-use super::scan_codes;
-use crate::input::{InputBackend, MouseButton};
-use crate::touch::to_pixel;
-
-/// Makes the process per-monitor DPI aware, so cursor positions and screen sizes are in
-/// physical pixels like the captured display. Call once at startup.
-pub fn use_physical_pixels() {
-    // SAFETY: takes a predefined context and has no other preconditions. It fails only if the
-    // awareness is already set, which then stays as it is.
-    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-}
-
-/// The primary display's size. In physical pixels, since the process is per-monitor DPI aware.
-pub(super) fn display_size() -> (i32, i32) {
-    // SAFETY: GetSystemMetrics only reads system settings.
-    unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
-}
+use super::{display_size, scan_codes};
+use crate::input::{InputBackend, MouseButton, to_pixel};
 
 /// SendInput's absolute coordinates for a pixel, clamped to the display. They span 0–65535 over
 /// the primary display; aiming at the pixel's center keeps Windows' truncation from landing on

@@ -15,14 +15,6 @@ pub const MIN_DIMENSION: i32 = 64;
 #[derive(Debug, PartialEq)]
 pub struct InvalidSettings(pub String);
 
-impl fmt::Display for InvalidSettings {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for InvalidSettings {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Resolution {
     pub width: i32,
@@ -444,7 +436,7 @@ mod tests {
         assert!(NVENC.fits(shrunk));
         assert_eq!(shrunk.width % 2, 0);
         assert_eq!(shrunk.height % 2, 0);
-        // Equal to 2 decimal places, like the C# test's Assert.Equal precision.
+        // Equal to 2 decimal places.
         let round = |ratio: f64| (ratio * 100.0).round();
         let aspect = shrunk.width as f64 / shrunk.height as f64;
         assert_eq!(round(aspect), round(5000.0 / 3001.0), "{aspect}");

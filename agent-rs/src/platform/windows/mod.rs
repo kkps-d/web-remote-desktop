@@ -4,12 +4,16 @@ mod input;
 mod scan_codes;
 mod touch;
 
-pub use input::{InputInjector, use_physical_pixels};
+pub use input::InputInjector;
 pub use touch::TouchInjector;
 
 use ::windows::Wdk::System::SystemServices::RtlGetVersion;
 use ::windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 use ::windows::Win32::System::SystemInformation::OSVERSIONINFOW;
+use ::windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
+use ::windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
 use ::windows::core::PCWSTR;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -194,4 +198,20 @@ pub fn primary_display_size() -> Option<Resolution> {
         width: mode.dmPelsWidth as i32,
         height: mode.dmPelsHeight as i32,
     })
+}
+
+/// Makes the process per-monitor DPI aware, so cursor positions and screen sizes are in
+/// physical pixels like the captured display. Call once at startup.
+pub fn use_physical_pixels() {
+    // SAFETY: takes a predefined context and has no other preconditions. It fails only if the
+    // awareness is already set, which then stays as it is.
+    let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
+/// The primary display's size for input injection, read on every event. In physical pixels,
+/// since the process is per-monitor DPI aware. Cheaper than `primary_display_size`, which
+/// queries the display driver.
+fn display_size() -> (i32, i32) {
+    // SAFETY: GetSystemMetrics only reads system settings.
+    unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }
 }

@@ -18,7 +18,7 @@ use ::windows::Win32::UI::Input::Pointer::{
 use ::windows::Win32::UI::WindowsAndMessaging::{PT_TOUCH, TOUCH_MASK_CONTACTAREA};
 use tracing::warn;
 
-use crate::touch::{MAX_CONTACTS, Phase, TouchBackend, TouchPoint};
+use crate::input::touch::{MAX_CONTACTS, Phase, TouchBackend, TouchPoint};
 
 // Windows cancels a contact that gets no updates for a while, so held contacts are resent.
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_millis(100);
@@ -75,7 +75,7 @@ impl TouchInjector {
 
 impl TouchBackend for TouchInjector {
     fn display_size(&self) -> (i32, i32) {
-        super::input::display_size()
+        super::display_size()
     }
 
     fn send(&mut self, frame: &[TouchPoint]) {

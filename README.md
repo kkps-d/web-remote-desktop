@@ -14,7 +14,7 @@ See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds
 
 Both listen on port 8080 on all interfaces. Run one at a time, or give one another port. Allow the agent through Windows Firewall on private networks.
 
-*Rust agent*: needs Windows 10 1809 or later, [Rust](https://rustup.rs/) with the MSVC toolchain, and GStreamer's development files (pick "Runtime and development headers" in the installer). The build finds GStreamer through pkg-config, and Windows loads GStreamer's DLLs before the agent starts, so set these once for your user (paths of the per-user installer), then open a new terminal:
+_Rust agent_: needs Windows 10 1809 or later, [Rust](https://rustup.rs/) with the MSVC toolchain, and GStreamer's development files (pick "Runtime and development headers" in the installer). The build finds GStreamer through pkg-config, and Windows loads GStreamer's DLLs before the agent starts, so set these once for your user (paths of the per-user installer), then open a new terminal:
 
 ```powershell
 $gst = "$env:LOCALAPPDATA\Programs\gstreamer\1.0\msvc_x86_64"
@@ -29,7 +29,7 @@ cargo run --release --manifest-path agent-rs/Cargo.toml
 
 Change the port with `-- --port 9000`. Set `RUST_LOG=debug` for more detail.
 
-*C# agent*: needs the [.NET 10 SDK](https://dotnet.microsoft.com/). The GStreamer runtime is enough.
+_C# agent_: needs the [.NET 10 SDK](https://dotnet.microsoft.com/). The GStreamer runtime is enough.
 
 ```bash
 dotnet run --project agent
