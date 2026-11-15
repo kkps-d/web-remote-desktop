@@ -40,13 +40,6 @@ These instructions apply throughout this repository. Follow [DESIGN_GUIDELINES.m
 
 - You may do live tests if needed without prompting the user
 
-## Linux VM
+## Linux agent development
 
-There is a linux vm in VMWare workstation player on a bridged network at 192.168.0.201 (DHCP) with SSH enabled on port 22. You may connect to it with the following credentials, or computer use it to control the vmware window.
-
-.env-ssh
-
-- LINUX_VM_USERNAME
-- LINUX_VM_PASSWORD
-
-Key login works without the password: `ssh -i ~/.ssh/webremote_vm webremotetest@192.168.0.201`.
+- Do Linux agent development on a Linux VM or computer, working inside its desktop session. See [Linux development](./docs/LINUX_DEV.md).

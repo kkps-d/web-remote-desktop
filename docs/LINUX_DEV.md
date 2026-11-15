@@ -2,6 +2,8 @@
 
 The Linux agent targets Wayland desktops with PipeWire. It captures through the xdg-desktop-portal and the audio through PipeWire. This page covers the development VM and the port, split into three steps.
 
+Develop on a Linux VM or computer, inside its desktop session: the agent needs that session to reach PipeWire and the portals.
+
 The agent doesn't build on Linux yet: `src/platform/` has only a Windows module, so names like `platform::CAPTURE` don't resolve.
 
 ## The VM
@@ -21,7 +23,7 @@ The agent doesn't build on Linux yet: `src/platform/` has only a Windows module,
     - Browsers hide their addresses behind `.local` names, which the VM can't resolve across NAT.
   - Ubuntu's firewall (ufw) is off by default. If you turn it on, allow TCP 8080 and UDP.
 
-To confirm the session, run these in a terminal on the VM's desktop (not over SSH):
+To confirm the session, run these in a terminal on the VM's desktop:
 
 ```bash
 echo $XDG_SESSION_TYPE                       # wayland
@@ -59,17 +61,15 @@ done
 
 Everything should be `ok`. The exception is `vah264enc`, which is missing without GPU passthrough.
 
-## Running from SSH
+## Running
 
-The agent must run as the desktop user, inside that user's session, to reach PipeWire and the portals:
+Run the agent from a terminal in the desktop session:
 
 ```bash
-export XDG_RUNTIME_DIR=/run/user/$(id -u)
-export DBUS_SESSION_BUS_ADDRESS=unix:path=$XDG_RUNTIME_DIR/bus WAYLAND_DISPLAY=wayland-0
 cargo run -- --port 8080
 ```
 
-Portal consent dialogs appear on the VM's screen; answer them in the VMware window. Run the client on Windows as usual and connect to the VM's IP.
+Portal consent dialogs appear on the desktop. Run the client on Windows as usual and connect to the VM's IP.
 
 ## The port
 
