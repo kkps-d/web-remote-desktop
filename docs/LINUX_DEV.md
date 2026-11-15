@@ -14,10 +14,11 @@ The agent doesn't build on Linux yet: `src/platform/` has only a Windows module,
   - A sound card. The default Sound Blaster (ES1371) works.
 - **Desktop session:** turn on automatic login, and turn off screen blanking and locking. The agent works inside the logged-in session.
 - **Network:**
-  - SSH is forwarded on `localhost:2222`.
-  - WebRTC media uses random UDP ports, so a viewer needs to reach the VM's own IP:
-    - With NAT, the host reaches the guest only through VMware's VMnet8 adapter on Windows.
-    - Without that adapter, or to test from LAN devices such as a tablet, use a bridged adapter.
+  - Use a bridged adapter, so the VM gets a LAN address that the host and a tablet can reach.
+  - Port forwarding through NAT doesn't work:
+    - WebRTC media uses a random UDP port per session.
+    - The agent advertises its own address, which viewers can't reach.
+    - Browsers hide their addresses behind `.local` names, which the VM can't resolve across NAT.
   - Ubuntu's firewall (ufw) is off by default. If you turn it on, allow TCP 8080 and UDP.
 
 To confirm the session, run these in a terminal on the VM's desktop (not over SSH):

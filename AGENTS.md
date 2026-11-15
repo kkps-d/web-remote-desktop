@@ -42,11 +42,11 @@ These instructions apply throughout this repository. Follow [DESIGN_GUIDELINES.m
 
 ## Linux VM
 
-There is a linux vm in VMWare workstation player running at localhost with SSH enabled. You may connect to it with the following credentials, or computer use it to control the vmware window. Port is 2222
+There is a linux vm in VMWare workstation player on a bridged network at 192.168.0.201 (DHCP) with SSH enabled on port 22. You may connect to it with the following credentials, or computer use it to control the vmware window.
 
 .env-ssh
 
 - LINUX_VM_USERNAME
 - LINUX_VM_PASSWORD
 
-Key login works without the password: `ssh -i ~/.ssh/webremote_vm -p 2222 webremotetest@localhost`.
+Key login works without the password: `ssh -i ~/.ssh/webremote_vm webremotetest@192.168.0.201`.
