@@ -1,6 +1,6 @@
 //! Holds the single active viewer session. A new viewer replaces the current one.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde::Serialize;
 use tracing::info;
@@ -41,8 +41,8 @@ impl ViewerSessions {
         // Reject an unusable offer before it disconnects the current viewer.
         let codec = sdp::find_h264_codec(offer_sdp)?;
 
-        let _setup = self.setup.lock().unwrap();
-        if let Some(previous) = self.current.lock().unwrap().take() {
+        let _setup = lock(&self.setup);
+        if let Some(previous) = lock(&self.current).take() {
             info!("Replacing session {} with a new viewer", previous.id());
             previous.stop();
         }
@@ -55,7 +55,7 @@ impl ViewerSessions {
         };
         let (session, answer) = StreamSession::start(offer_sdp, &codec, &self.encoders, on_ended)?;
 
-        let mut current = self.current.lock().unwrap();
+        let mut current = lock(&self.current);
         // stop() ignores a session that isn't current yet, so catch one that already ended.
         if let Some(reason) = session.end_reason() {
             session.stop();
@@ -69,7 +69,7 @@ impl ViewerSessions {
 
     /// Stops the session if it is still the current one. Returns false if it isn't.
     pub fn stop(&self, id: &str) -> bool {
-        let mut current = self.current.lock().unwrap();
+        let mut current = lock(&self.current);
         if current.as_ref().is_none_or(|session| session.id() != id) {
             return false;
         }
@@ -103,7 +103,7 @@ impl ViewerSessions {
     }
 
     fn find(&self, id: &str) -> Option<Arc<StreamSession>> {
-        let current = self.current.lock().unwrap();
+        let current = lock(&self.current);
         current
             .as_ref()
             .filter(|session| session.id() == id)
@@ -120,9 +120,34 @@ impl ViewerSessions {
 
     /// Stops the current session, waiting for any setup in progress.
     pub fn shutdown(&self) {
-        let _setup = self.setup.lock().unwrap();
-        if let Some(session) = self.current.lock().unwrap().take() {
+        let _setup = lock(&self.setup);
+        if let Some(session) = lock(&self.current).take() {
             session.stop();
         }
+    }
+}
+
+// A panic while a lock is held, e.g. during setup, poisons it. What the locks guard stays valid
+// (a unit, or an Option that is only ever replaced whole), so later viewers take them anyway
+// instead of failing until the agent restarts.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic;
+
+    use super::*;
+
+    #[test]
+    fn takes_a_lock_that_a_panic_poisoned() {
+        let setup = Mutex::new(Some(1));
+        let _ = panic::catch_unwind(|| {
+            let _held = setup.lock().unwrap();
+            panic!("setup failed");
+        });
+        assert!(setup.is_poisoned());
+        assert_eq!(*lock(&setup), Some(1));
     }
 }
