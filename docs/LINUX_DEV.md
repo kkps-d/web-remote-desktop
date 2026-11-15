@@ -119,7 +119,7 @@ sudo usermod -aG input "$USER"   # then reboot
 
 ## Open questions
 
-- **Consent:** the portals ask on every new session. Restore tokens skip the dialog after the first time. Starting unattended may need Mutter's own D-Bus API, as gnome-remote-desktop uses.
+- **Unattended start (idea, on hold):** restore tokens only skip the dialog after someone approves it once, and a lost token brings it back. Mutter's own D-Bus API (`org.gnome.Mutter.RemoteDesktop` + `org.gnome.Mutter.ScreenCast`, as gnome-remote-desktop uses) has no dialog: on GNOME 50 a plain session process got a monitor stream from it. Its session also takes keyboard, pointer and touch, which could replace uinput and map input to the monitor. Pair it with a systemd user service and automatic login. Downsides: GNOME only, a private API, and the agent would share the screen with no prompt while it lacks authentication.
 - **Other compositors:** KDE Plasma and wlroots compositors implement the portals differently. Touch support in the RemoteDesktop portal varies.
 - **Scaling:** check that coordinates and the stream size hold up with fractional scaling and several monitors.
 - **GPU encoders:** VA-API and NVENC need GPU passthrough to test. Zero-copy DMABuf → VA is the Linux counterpart of the D3D11 path.
