@@ -8,7 +8,7 @@ See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the design. LAN/VPN only, p
 
 See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds.
 
-See [Linux development](docs/LINUX_DEV.md) to set up a VM for the Linux side of the agent.
+See [Linux development](docs/LINUX_DEV.md) for the Linux VM setup and the plan for the Linux agent.
 
 ## Running
 
