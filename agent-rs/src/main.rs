@@ -222,9 +222,13 @@ fn listen_any_ip(port: u16) -> io::Result<tokio::net::TcpListener> {
     }
 }
 
-// SO_REUSEADDR stays off: on Windows it would let another process take over the port.
+// SO_REUSEADDR stays off on Windows, where it would let another process take over the port.
+// Elsewhere it only lets a restarted agent listen while the last run's connections linger in
+// TIME-WAIT.
 fn listen(domain: Domain, port: u16) -> io::Result<tokio::net::TcpListener> {
     let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+    #[cfg(not(windows))]
+    socket.set_reuse_address(true)?;
     let address = if domain == Domain::IPV6 {
         socket.set_only_v6(false)?;
         SocketAddr::from((Ipv6Addr::UNSPECIFIED, port))

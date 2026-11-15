@@ -46,9 +46,11 @@ impl EncoderBin {
 // type and profile-level-id must be the browser's. Desktop resolutions need a higher H.264 level
 // than browsers offer; they accept it (level-asymmetry-allowed=1), so capssetter just relabels
 // the caps. AMF labels its constrained output plain "baseline", so accept both. The encoder bin
-// goes between the two chains; see StreamSession::start.
+// goes between the two chains; see StreamSession::start. `capture` is the platform's capture
+// segment.
 pub fn pipeline_description(
     codec: &H264Codec,
+    capture: &str,
     opus_payload_type: Option<u32>,
     size: Option<Resolution>,
 ) -> String {
@@ -61,7 +63,6 @@ pub fn pipeline_description(
          rtph264pay pt={payload_type} config-interval=-1 aggregate-mode=zero-latency ! \
          capssetter caps=\"application/x-rtp,profile-level-id=(string){profile_level_id}\" ! \
          webrtcbin name=webrtc bundle-policy=max-bundle{audio}",
-        capture = platform::CAPTURE,
         caps = platform::output_caps(size, DEFAULT_FRAMERATE),
         payload_type = codec.payload_type,
         profile_level_id = codec.profile_level_id,
@@ -80,8 +81,8 @@ fn audio_description(payload_type: u32) -> String {
 
 // Streams start at native resolution (None), unless the display is larger than the encoder
 // accepts; then they start scaled down to fit, e.g. NVENC's 4096 px on a 5K display.
-pub fn initial_size(limits: SizeLimits) -> Option<Resolution> {
-    let display = platform::primary_display_size()?;
+pub fn initial_size(limits: SizeLimits, display: Option<Resolution>) -> Option<Resolution> {
+    let display = display?;
     (!limits.fits(display)).then(|| limits.shrink_to_fit(display))
 }
 
@@ -111,7 +112,8 @@ pub fn static_pad(element: &impl IsA<gst::Element>, name: &str) -> Result<gst::P
         .ok_or_else(|| format!("Pad {name} not found."))
 }
 
-#[cfg(test)]
+// The expected strings are the Windows capture and its D3D11 caps.
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 
@@ -126,15 +128,19 @@ mod tests {
             height: 2304,
         };
 
+        let capture = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert";
         let video = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert ! \
              capsfilter name=output caps=video/x-raw(memory:D3D11Memory),format=NV12,width=4096,height=2304,framerate=30/1  \
              h264parse name=parse ! video/x-h264,profile=(string){constrained-baseline,baseline} ! \
              rtph264pay pt=106 config-interval=-1 aggregate-mode=zero-latency ! \
              capssetter caps=\"application/x-rtp,profile-level-id=(string)42e01f\" ! \
              webrtcbin name=webrtc bundle-policy=max-bundle";
-        assert_eq!(pipeline_description(&codec, None, Some(size)), video);
+        assert_eq!(
+            pipeline_description(&codec, capture, None, Some(size)),
+            video
+        );
         assert!(
-            pipeline_description(&codec, None, None)
+            pipeline_description(&codec, capture, None, None)
                 .contains("caps=video/x-raw(memory:D3D11Memory),format=NV12,framerate=30/1  ")
         );
 
@@ -146,7 +152,7 @@ mod tests {
             std::process::id()
         );
         assert_eq!(
-            pipeline_description(&codec, Some(111), Some(size)),
+            pipeline_description(&codec, capture, Some(111), Some(size)),
             format!("{video}  {audio}")
         );
     }

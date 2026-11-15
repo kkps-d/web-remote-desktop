@@ -100,6 +100,9 @@ pub struct StreamSession {
     // Dropping the sender stops the connection monitor.
     stop_monitor: Mutex<Option<mpsc::Sender<()>>>,
     input: Arc<InputChannel>,
+    // Held for the stream; on Linux it is the portal session. Drop stops the pipeline before
+    // the fields drop, so the capture outlives it.
+    _capture: platform::Capture,
 }
 
 impl StreamSession {
@@ -119,9 +122,11 @@ impl StreamSession {
             warn!("Streaming without audio: {reason}.");
             opus_payload_type = None;
         }
+        let capture = platform::Capture::open().map_err(failed)?;
         let encoder = encoders.default();
-        let size = initial_size(encoders.limits(encoder));
-        let description = pipeline_description(codec, opus_payload_type, size);
+        let size = initial_size(encoders.limits(encoder), capture.size());
+        let description =
+            pipeline_description(codec, &capture.description(), opus_payload_type, size);
         let pipeline = gst::parse::launch(&description)
             .map_err(failed)?
             .downcast::<gst::Pipeline>()
@@ -139,15 +144,17 @@ impl StreamSession {
         encode_timing.attach(&encoder_bin.sink, &encoder_bin.src);
 
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let capture = by_name(&pipeline, "capture")?;
-        let capture_src = static_pad(&capture, "src")?;
+        let capture_element = by_name(&pipeline, "capture")?;
+        capture.attach(&capture_element);
+        let capture_src = static_pad(&capture_element, "src")?;
         // The viewer hides the stream cursor while it shows its own (absolute pointer mode).
         let input = InputChannel::connect(&webrtc, &id, move |visible| {
-            platform::show_cursor(&capture, visible);
+            platform::show_cursor(&capture_element, visible);
         });
 
         let session = Arc::new(Self {
             id,
+            _capture: capture,
             input,
             capture_src,
             output_src,

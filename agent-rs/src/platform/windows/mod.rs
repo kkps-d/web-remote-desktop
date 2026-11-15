@@ -22,7 +22,37 @@ use crate::encoders::EncoderDefinition;
 use crate::settings::Resolution;
 
 /// Captures the primary monitor on the GPU, ready for the output capsfilter.
-pub const CAPTURE: &str = "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert";
+pub struct Capture;
+
+impl Capture {
+    pub fn open() -> Result<Self, String> {
+        Ok(Self)
+    }
+
+    /// The capture segment of the pipeline; its source is named "capture".
+    pub fn description(&self) -> String {
+        "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert".into()
+    }
+
+    /// Takes the element named "capture" once the pipeline is built. Nothing to do on Windows.
+    pub fn attach(&self, _capture: &gst::Element) {}
+
+    /// The primary display's mode in physical pixels, which d3d11screencapturesrc captures by
+    /// default; unlike GetSystemMetrics, it isn't scaled for DPI. None if it can't be read.
+    pub fn size(&self) -> Option<Resolution> {
+        let mut mode = DEVMODEW {
+            dmSize: size_of::<DEVMODEW>() as u16,
+            ..Default::default()
+        };
+        // SAFETY: mode is a valid DEVMODEW with dmSize set, as the API requires.
+        let found =
+            unsafe { EnumDisplaySettingsW(PCWSTR::null(), ENUM_CURRENT_SETTINGS, &mut mode) };
+        found.as_bool().then_some(Resolution {
+            width: mode.dmPelsWidth as i32,
+            height: mode.dmPelsHeight as i32,
+        })
+    }
+}
 
 /// Captures what every app plays except the agent itself (process loopback), for the audio
 /// branch. Unlike loopback of the default device, it keeps working when the output device
@@ -54,7 +84,7 @@ pub fn audio_unavailable() -> Option<&'static str> {
     (build < (10, 0, 20348)).then_some("process loopback needs Windows build 20348 or later")
 }
 
-/// Shows or hides the cursor in the capture named "capture" in `CAPTURE`, while streaming.
+/// Shows or hides the cursor in the capture named "capture", while streaming.
 pub fn show_cursor(capture: &gst::Element, visible: bool) {
     capture.set_property("show-cursor", visible);
 }
@@ -185,21 +215,6 @@ pub fn runs_on(factory: &gst::ElementFactory, gpu: &DisplayGpu) -> bool {
         && element.property_value("adapter-luid").get::<i64>() == Ok(gpu.luid)
 }
 
-/// The primary display's mode in physical pixels, which d3d11screencapturesrc captures by
-/// default; unlike GetSystemMetrics, it isn't scaled for DPI. None if it can't be read.
-pub fn primary_display_size() -> Option<Resolution> {
-    let mut mode = DEVMODEW {
-        dmSize: size_of::<DEVMODEW>() as u16,
-        ..Default::default()
-    };
-    // SAFETY: mode is a valid DEVMODEW with dmSize set, as the API requires.
-    let found = unsafe { EnumDisplaySettingsW(PCWSTR::null(), ENUM_CURRENT_SETTINGS, &mut mode) };
-    found.as_bool().then_some(Resolution {
-        width: mode.dmPelsWidth as i32,
-        height: mode.dmPelsHeight as i32,
-    })
-}
-
 /// Makes the process per-monitor DPI aware, so cursor positions and screen sizes are in
 /// physical pixels like the captured display. Call once at startup.
 pub fn use_physical_pixels() {
@@ -209,8 +224,8 @@ pub fn use_physical_pixels() {
 }
 
 /// The primary display's size for input injection, read on every event. In physical pixels,
-/// since the process is per-monitor DPI aware. Cheaper than `primary_display_size`, which
-/// queries the display driver.
+/// since the process is per-monitor DPI aware. Cheaper than `Capture::size`, which queries
+/// the display driver.
 fn display_size() -> (i32, i32) {
     // SAFETY: GetSystemMetrics only reads system settings.
     unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) }

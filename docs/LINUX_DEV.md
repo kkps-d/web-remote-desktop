@@ -4,8 +4,6 @@ The Linux agent targets Wayland desktops with PipeWire. It captures through the 
 
 Develop on a Linux VM or computer, inside its desktop session: the agent needs that session to reach PipeWire and the portals.
 
-The agent doesn't build on Linux yet: `src/platform/` has only a Windows module, so names like `platform::CAPTURE` don't resolve.
-
 ## The VM
 
 - **Ubuntu 26.04 LTS desktop.** Its GNOME runs on Wayland only; there is no Xorg session. PipeWire is the audio server, and pipewire-pulse serves the PulseAudio API. It ships GStreamer 1.28.2; the 1.28.4 minimum in the README only applies to WASAPI on Windows.
@@ -75,40 +73,21 @@ Portal consent dialogs appear on the desktop. Run the client on Windows as usual
 
 Each step ends with a working agent, a conventional commit and a review.
 
-### Before step 1: shared code
+### Step 1: video stream (done)
 
-- Add `#[cfg(target_os = "linux")] mod linux; pub use self::linux::*;` to `src/platform/mod.rs`.
-- `CAPTURE` is a constant, but on Linux the capture element needs the portal's PipeWire fd and node id at run time. Turn it into a function on both platforms.
-- The pipeline test in `src/pipeline.rs` asserts the Windows strings. Make it Windows-only, or give each platform its own expected strings.
-- **Decide input now, because it changes the portal session step 1 opens:**
-  - **RemoteDesktop portal (recommended):** GNOME 50 offers keyboard, pointer and touchscreen. One RemoteDesktop session with ScreenCast attached gives video and input together, with one consent dialog. Input coordinates map to the stream, and no udev rules are needed.
-  - **ScreenCast portal plus uinput:** works without the portal for input, but needs the `input` group and maps coordinates to the whole desktop.
+`src/platform/linux/` streams the desktop with x264. Audio and input are stubs: `audio_unavailable()` returns `Some("not ported yet")`, which makes sessions video-only, and the injectors do nothing.
 
-### Step 1: video stream
-
-Implement the video names in `src/platform/linux/`. Stub the rest, so the crate builds:
-- `audio_unavailable()` returns `Some("not ported yet")`, which already makes sessions video-only.
-- `InputInjector` and `TouchInjector` do nothing.
-- `use_physical_pixels()` is a no-op.
-
-| Name | Linux |
-| --- | --- |
-| Capture | Open a portal session with the `ashpd` crate: pick a monitor, set the cursor mode and a persist mode with a restore token. Then run `pipewiresrc fd=<fd> target-object=<node id> name=capture`. Keep the portal session alive for the stream, and end the stream when the user stops sharing. |
-| `output_caps` | `videoconvert ! videoscale` to `video/x-raw,format=NV12,…,framerate=N/1` in system memory. |
-| `show_cursor` | The portal fixes the cursor mode per session. Start with embedded and log that toggling isn't supported, or use metadata mode and draw the cursor. |
-| `ENCODERS` | `x264enc` (as on Windows, without `d3d11download`), `vah264enc`/`vah264lpenc`, `nvh264enc`. Only x264 runs in the VM. |
-| `find_display_gpu`, `runs_on` | `None` and CPU encoders first. VA elements register per render node (`vah264enc`, `varenderD129h264enc`, …) for later. |
-| `primary_display_size` | The portal stream's size. |
-
-Watch for these:
-- **Static screens:** GNOME sends PipeWire frames only when the screen changes, while Windows captures at the requested rate. Check that a static screen still streams, using `pipewiresrc keepalive-time` or `videorate`.
-- **Frame rate:** check that settings changes renegotiate the capture.
-
-Done when the Windows client plays the VM's desktop, and changing resolution, frame rate, bitrate and encoder works.
+- **Input route:** the ScreenCast portal for video, and uinput for input in step 2.
+- **Capture:** `platform::Capture` holds an `ashpd` ScreenCast session sharing one monitor, with the cursor embedded, for as long as the stream runs. Closing it removes GNOME's sharing indicator. The pipeline runs `pipewiresrc fd=<fd> path=<node id> keepalive-time=100 ! videorate drop-only=true ! videoconvert ! videoscale` into NV12 in system memory.
+- **Consent:** the first stream shows GNOME's share dialog. The restore token in `~/.local/state/web-remote-desktop/screencast-restore-token` skips the dialog later, also after restarts. Delete the file to choose again.
+- **Static screens:** GNOME sends frames only when the screen changes. `keepalive-time` resends the last one, and `videorate` caps the variable rate at the chosen frame rate.
+- **Settings changes:** `pipewiresrc` answers a reconfigure event by reconnecting its stream, after which GNOME sends no frames. `Capture::attach` drops reconfigure events before they reach it; the elements after it handle every change.
+- **Cursor:** the portal fixes the cursor mode per session, so `show_cursor` can't hide it.
+- **Encoders:** x264 only. VA and NVENC are listed but unavailable until `find_display_gpu` is ported; VA elements register per render node (`vah264enc`, `varenderD129h264enc`, …).
 
 ### Step 2: input
 
-Implement `InputBackend` and `TouchBackend` with the choice made before step 1.
+Implement `InputBackend` and `TouchBackend` with uinput, the route chosen in step 1.
 
 | `InputMessage` | RemoteDesktop portal | uinput fallback |
 | --- | --- | --- |

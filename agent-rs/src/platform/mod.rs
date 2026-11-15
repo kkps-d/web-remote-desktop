@@ -6,3 +6,8 @@ mod windows;
 // `self::` because a bare `windows` would also name the `windows` crate.
 #[cfg(windows)]
 pub use self::windows::*;
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use self::linux::*;
