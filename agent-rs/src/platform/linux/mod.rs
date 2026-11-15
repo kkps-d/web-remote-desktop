@@ -3,11 +3,16 @@
 
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
+use std::pin::pin;
 use std::sync::Once;
+use std::thread;
+use std::time::Duration;
 
 use ashpd::desktop::screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType};
 use ashpd::desktop::{PersistMode, ResponseError, Session};
 use ashpd::zbus::block_on;
+use futures_channel::oneshot;
+use futures_util::future::{self, Either};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use tracing::{debug, warn};
@@ -20,11 +25,18 @@ use crate::settings::Resolution;
 // GNOME sends frames only when the screen changes; pipewiresrc resends the last one this often
 // so a static screen keeps streaming.
 const KEEPALIVE_MS: u32 = 100;
+// How long the person at the desktop has to answer GNOME's share dialog. The viewer's offer, and
+// any viewer after it, wait meanwhile.
+const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// A ScreenCast portal session sharing one monitor, held for as long as the stream runs.
 /// Dropping it ends the session and GNOME's sharing indicator.
 pub struct Capture {
     session: Session<Screencast>,
+    monitor: SharedMonitor,
+}
+
+struct SharedMonitor {
     // pipewiresrc connects with a duplicate of this PipeWire remote.
     remote: OwnedFd,
     node_id: u32,
@@ -33,25 +45,45 @@ pub struct Capture {
 
 impl Capture {
     /// Asks the portal to share a monitor. The first time, GNOME shows a dialog on the desktop;
-    /// a saved restore token skips it afterwards. Blocks until the dialog is answered.
+    /// a saved restore token skips it afterwards. Blocks until the dialog is answered, for up to
+    /// `CONSENT_TIMEOUT`.
     pub fn open() -> Result<Self, String> {
-        block_on(open_session()).map_err(|error| match error {
-            ashpd::Error::Response(ResponseError::Cancelled) => {
-                "Screen sharing was declined.".to_owned()
+        block_on(async {
+            let portal = Screencast::new().await.map_err(open_error)?;
+            let session = portal
+                .create_session(Default::default())
+                .await
+                .map_err(open_error)?;
+            let shared = {
+                let sharing = pin!(share_monitor(&portal, &session));
+                match future::select(sharing, sleep(CONSENT_TIMEOUT)).await {
+                    Either::Left((shared, _)) => shared.map_err(open_error),
+                    Either::Right(_) => {
+                        Err("Nobody answered the screen sharing dialog in time.".to_owned())
+                    }
+                }
+            };
+            match shared {
+                Ok(monitor) => Ok(Self { session, monitor }),
+                // An ashpd Session doesn't close on drop. Closing also dismisses the dialog.
+                Err(error) => {
+                    let _ = session.close().await;
+                    Err(error)
+                }
             }
-            error => format!("Could not start screen sharing: {error}"),
         })
     }
 
     /// The capture segment of the pipeline; its source is named "capture". GNOME's stream has a
     /// variable frame rate, so videorate caps it at the output caps' rate. The portal's format
-    /// never changes; see `attach`.
+    /// never changes; see `attach`. When the user stops sharing, pipewiresrc posts an error,
+    /// which ends the session.
     pub fn description(&self) -> String {
         format!(
-            "pipewiresrc fd={fd} path={node} name=capture keepalive-time={KEEPALIVE_MS} ! \
-             videorate drop-only=true ! videoconvert ! videoscale",
-            fd = self.remote.as_raw_fd(),
-            node = self.node_id,
+            "pipewiresrc fd={fd} path={node} name=capture keepalive-time={KEEPALIVE_MS} \
+             on-disconnect=error ! videorate drop-only=true ! videoconvert ! videoscale",
+            fd = self.monitor.remote.as_raw_fd(),
+            node = self.monitor.node_id,
         )
     }
 
@@ -76,7 +108,7 @@ impl Capture {
 
     /// The shared monitor's size, as the portal reports it.
     pub fn size(&self) -> Option<Resolution> {
-        self.size
+        self.monitor.size
     }
 }
 
@@ -88,13 +120,32 @@ impl Drop for Capture {
     }
 }
 
-async fn open_session() -> ashpd::Result<Capture> {
-    let portal = Screencast::new().await?;
-    let session = portal.create_session(Default::default()).await?;
+/// Completes after `duration` on any executor. A thread does the waiting, since zbus's
+/// `block_on` offers no timer of its own.
+fn sleep(duration: Duration) -> oneshot::Receiver<()> {
+    let (elapsed, receiver) = oneshot::channel();
+    thread::spawn(move || {
+        thread::sleep(duration);
+        let _ = elapsed.send(());
+    });
+    receiver
+}
+
+fn open_error(error: ashpd::Error) -> String {
+    match error {
+        ashpd::Error::Response(ResponseError::Cancelled) => "Screen sharing was declined.".into(),
+        error => format!("Could not start screen sharing: {error}"),
+    }
+}
+
+async fn share_monitor(
+    portal: &Screencast,
+    session: &Session<Screencast>,
+) -> ashpd::Result<SharedMonitor> {
     let saved_token = restore_token_path().and_then(|path| std::fs::read_to_string(path).ok());
     portal
         .select_sources(
-            &session,
+            session,
             SelectSourcesOptions::default()
                 .set_sources(SourceType::MONITOR)
                 .set_multiple(false)
@@ -104,7 +155,7 @@ async fn open_session() -> ashpd::Result<Capture> {
         )
         .await?;
     let streams = portal
-        .start(&session, None, Default::default())
+        .start(session, None, Default::default())
         .await?
         .response()?;
     if let Some(token) = streams.restore_token() {
@@ -119,10 +170,9 @@ async fn open_session() -> ashpd::Result<Capture> {
         .map(|(width, height)| Resolution { width, height });
     let node_id = stream.pipe_wire_node_id();
     let remote = portal
-        .open_pipe_wire_remote(&session, Default::default())
+        .open_pipe_wire_remote(session, Default::default())
         .await?;
-    Ok(Capture {
-        session,
+    Ok(SharedMonitor {
         remote,
         node_id,
         size,
