@@ -48,3 +48,5 @@ There is a linux vm in VMWare workstation player running at localhost with SSH e
 
 - LINUX_VM_USERNAME
 - LINUX_VM_PASSWORD
+
+Key login works without the password: `ssh -i ~/.ssh/webremote_vm -p 2222 webremotetest@localhost`.

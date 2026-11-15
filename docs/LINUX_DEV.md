@@ -11,13 +11,13 @@ The agent doesn't build on Linux yet: `src/platform/` has only a Windows module,
   - At least 4 vCPUs and 8 GB of memory. Without a GPU, x264 encodes on the CPU.
   - 3D acceleration on.
   - A fixed 1920×1080 display.
-  - An HD Audio sound card.
+  - A sound card. The default Sound Blaster (ES1371) works.
 - **Desktop session:** turn on automatic login, and turn off screen blanking and locking. The agent works inside the logged-in session.
 - **Network:**
   - SSH is forwarded on `localhost:2222`.
   - WebRTC media uses random UDP ports, so a viewer needs to reach the VM's own IP:
-    - NAT is enough for a browser on the host.
-    - Use a bridged adapter to test from LAN devices such as a tablet.
+    - With NAT, the host reaches the guest only through VMware's VMnet8 adapter on Windows.
+    - Without that adapter, or to test from LAN devices such as a tablet, use a bridged adapter.
   - Ubuntu's firewall (ufw) is off by default. If you turn it on, allow TCP 8080 and UDP.
 
 To confirm the session, run these in a terminal on the VM's desktop (not over SSH):
@@ -80,7 +80,7 @@ Each step ends with a working agent, a conventional commit and a review.
 - `CAPTURE` is a constant, but on Linux the capture element needs the portal's PipeWire fd and node id at run time. Turn it into a function on both platforms.
 - The pipeline test in `src/pipeline.rs` asserts the Windows strings. Make it Windows-only, or give each platform its own expected strings.
 - **Decide input now, because it changes the portal session step 1 opens:**
-  - **RemoteDesktop portal (recommended):** one RemoteDesktop session with ScreenCast attached gives video and input together, with one consent dialog. Input coordinates map to the stream, and no udev rules are needed.
+  - **RemoteDesktop portal (recommended):** GNOME 50 offers keyboard, pointer and touchscreen. One RemoteDesktop session with ScreenCast attached gives video and input together, with one consent dialog. Input coordinates map to the stream, and no udev rules are needed.
   - **ScreenCast portal plus uinput:** works without the portal for input, but needs the `input` group and maps coordinates to the whole desktop.
 
 ### Step 1: video stream
@@ -137,7 +137,7 @@ Done when absolute and relative mouse, buttons, wheel, typing, `releaseAll` and 
 | `audio_capture` | `pipewiresrc stream-properties="props,stream.capture.sink=true"`, which captures the monitor of the default output |
 | `audio_unavailable` | `None` when PipeWire is reachable, otherwise a reason |
 
-Try it on the VM's desktop. Play something while it runs, then play the file back:
+This captured a test tone on the VM. Try it there: play something while it runs, then play the file back:
 
 ```bash
 gst-launch-1.0 -e pipewiresrc stream-properties="props,stream.capture.sink=true" num-buffers=500 ! \
