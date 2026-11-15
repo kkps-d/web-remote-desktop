@@ -8,6 +8,8 @@ See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the design. LAN/VPN only, p
 
 See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds.
 
+See [Linux development](docs/LINUX_DEV.md) to set up a VM for the Linux side of the agent.
+
 ## Running
 
 **Agent** (Windows): there are two agents with the same API. The Rust agent in `agent-rs/` replaces the C# agent in `agent/`, which is archived: kept for reference and no longer updated. Both need [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28.4+ (MSVC build). Audio needs Windows 10 build 20348 or later (e.g. Windows 11); older builds stream video only.
