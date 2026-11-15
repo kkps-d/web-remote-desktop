@@ -75,7 +75,7 @@ Each step ends with a working agent, a conventional commit and a review.
 
 ### Step 1: video stream (done)
 
-`src/platform/linux/` streams the desktop with x264. Audio and input are stubs: `audio_unavailable()` returns `Some("not ported yet")`, which makes sessions video-only, and the injectors do nothing.
+`src/platform/linux/` streams the desktop with x264. Audio is a stub: `audio_unavailable()` returns `Some("not ported yet")`, which makes sessions video-only.
 
 - **Input route:** the ScreenCast portal for video, and uinput for input in step 2.
 - **Capture:** `platform::Capture` holds an `ashpd` ScreenCast session sharing one monitor, with the cursor embedded, for as long as the stream runs. Closing it removes GNOME's sharing indicator. Stopping sharing from GNOME ends the viewer's session, through `on-disconnect=error`. The pipeline runs `pipewiresrc fd=<fd> path=<node id> keepalive-time=100 on-disconnect=error ! videorate drop-only=true ! videoconvert ! videoscale` into NV12 in system memory.
@@ -85,22 +85,19 @@ Each step ends with a working agent, a conventional commit and a review.
 - **Cursor:** the portal fixes the cursor mode per session, so `show_cursor` can't hide it.
 - **Encoders:** x264 only. VA and NVENC are listed but unavailable until `find_display_gpu` is ported; VA elements register per render node (`vah264enc`, `varenderD129h264enc`, …).
 
-### Step 2: input
+### Step 2: input (done)
 
-Implement `InputBackend` and `TouchBackend` with uinput, the route chosen in step 1.
+Each session creates uinput devices with the `evdev` crate, and the compositor handles them like real hardware:
 
-| `InputMessage` | RemoteDesktop portal | uinput fallback |
-| --- | --- | --- |
-| `move` | `NotifyPointerMotionAbsolute` on the stream | Absolute pointer device (`ABS_X`/`ABS_Y`) |
-| `moveBy` | `NotifyPointerMotion` | Relative mouse device (`REL_X`/`REL_Y`) |
-| `button` | `NotifyPointerButton` | `BTN_LEFT`, `BTN_RIGHT`, … |
-| `wheel` | `NotifyPointerAxis` | `REL_WHEEL_HI_RES` (also 120 per notch) |
-| `key` | `NotifyKeyboardKeycode` | `KEY_*` |
-| `touch` | `NotifyTouchDown`/`Motion`/`Up` on the stream | Multitouch device, protocol B, `INPUT_PROP_DIRECT` |
+| `InputMessage` | Device |
+| --- | --- |
+| `move` | Absolute pointer (`ABS_X`/`ABS_Y` over 0–65535), which the compositor maps onto the desktop |
+| `moveBy` | Relative mouse (`REL_X`/`REL_Y`). The desktop applies its pointer acceleration; games that lock the pointer read the raw motion. |
+| `button`, `wheel` | The absolute pointer. The wheel sends `REL_WHEEL_HI_RES` (120 per notch) and `REL_WHEEL` once a whole notch adds up. |
+| `key` | Keyboard, through the `KeyboardEvent.code` → `KEY_*` table in `key_codes.rs`. The compositor repeats held keys itself. |
+| `touch` | Touchscreen: multitouch protocol B, `INPUT_PROP_DIRECT`, 10 slots. Linux has no touch cancel, so a canceled contact lifts. |
 
-Both routes need a `KeyboardEvent.code` → evdev `KEY_*` table, modelled on `platform/windows/scan_codes.rs`. Linux has no injection timeout, so the Windows touch keep-alive thread isn't needed.
-
-The uinput fallback needs access to `/dev/uinput`. The `input` group can also read every input device; fine on a dev VM, not something to ship:
+Without access to `/dev/uinput`, the agent logs a warning and streams without input. Access comes from the `input` group, which can also read every input device; fine on a dev VM, not something to ship:
 
 ```bash
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf
@@ -108,7 +105,7 @@ echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput
 sudo usermod -aG input "$USER"   # then reboot
 ```
 
-Done when absolute and relative mouse, buttons, wheel, typing, `releaseAll` and touch from the tablet all work. Check with `libinput debug-events` and a desktop app.
+`sudo libinput debug-events` shows the "Web Remote Desktop" devices and what they send. Absolute and touch coordinates cover the whole desktop, which matches the stream with one monitor only.
 
 ### Step 3: audio stream
 

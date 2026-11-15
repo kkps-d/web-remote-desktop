@@ -1,5 +1,12 @@
-//! Linux capture and encoders for Wayland desktops: the screen comes from the ScreenCast portal
-//! through PipeWire. Audio and input aren't ported yet.
+//! Linux capture, encoders and input for Wayland desktops: the screen comes from the ScreenCast
+//! portal through PipeWire, and input goes in through uinput. Audio isn't ported yet.
+
+mod input;
+mod key_codes;
+mod touch;
+
+pub use input::InputInjector;
+pub use touch::TouchInjector;
 
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
@@ -18,8 +25,6 @@ use gstreamer::prelude::*;
 use tracing::{debug, warn};
 
 use crate::encoders::EncoderDefinition;
-use crate::input::touch::{TouchBackend, TouchPoint};
-use crate::input::{InputBackend, MouseButton};
 use crate::settings::Resolution;
 
 // GNOME sends frames only when the screen changes; pipewiresrc resends the last one this often
@@ -285,40 +290,3 @@ pub fn runs_on(_factory: &gst::ElementFactory, _gpu: &DisplayGpu) -> bool {
 
 /// Nothing to do: the portal stream and its size are already in physical pixels.
 pub fn use_physical_pixels() {}
-
-/// Not ported yet; drops all input.
-pub struct InputInjector;
-
-impl InputInjector {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl InputBackend for InputInjector {
-    fn move_to(&mut self, _x: f64, _y: f64) {}
-    fn move_by(&mut self, _dx: i32, _dy: i32) {}
-    fn button(&mut self, _button: MouseButton, _down: bool) {}
-    fn scroll(&mut self, _dx: i32, _dy: i32) {}
-    fn key(&mut self, _code: &str, _down: bool) -> bool {
-        false
-    }
-}
-
-/// Not ported yet; drops all touch.
-pub struct TouchInjector;
-
-impl TouchInjector {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl TouchBackend for TouchInjector {
-    // Not 0×0, which would make to_pixel's clamp range empty.
-    fn display_size(&self) -> (i32, i32) {
-        (1, 1)
-    }
-
-    fn send(&mut self, _frame: &[TouchPoint]) {}
-}

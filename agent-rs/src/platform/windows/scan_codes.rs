@@ -84,28 +84,11 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-
-    // KeyboardEvent.code values of a full-size US (104-key) and ISO (105-key) keyboard.
-    #[rustfmt::skip]
-    const STANDARD_KEYS: &[&str] = &[
-        "Escape", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-        "PrintScreen", "ScrollLock", "Pause",
-        "Backquote", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8", "Digit9",
-        "Digit0", "Minus", "Equal", "Backspace",
-        "Tab", "KeyQ", "KeyW", "KeyE", "KeyR", "KeyT", "KeyY", "KeyU", "KeyI", "KeyO", "KeyP",
-        "BracketLeft", "BracketRight", "Backslash",
-        "CapsLock", "KeyA", "KeyS", "KeyD", "KeyF", "KeyG", "KeyH", "KeyJ", "KeyK", "KeyL", "Semicolon", "Quote", "Enter",
-        "ShiftLeft", "IntlBackslash", "KeyZ", "KeyX", "KeyC", "KeyV", "KeyB", "KeyN", "KeyM",
-        "Comma", "Period", "Slash", "ShiftRight",
-        "ControlLeft", "MetaLeft", "AltLeft", "Space", "AltRight", "MetaRight", "ContextMenu", "ControlRight",
-        "Insert", "Home", "PageUp", "Delete", "End", "PageDown", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight",
-        "NumLock", "NumpadDivide", "NumpadMultiply", "NumpadSubtract", "NumpadAdd", "NumpadEnter", "NumpadDecimal",
-        "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4", "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9",
-    ];
+    use crate::input::STANDARD_KEY_CODES;
 
     #[test]
     fn maps_every_standard_key() {
-        let missing: Vec<_> = STANDARD_KEYS
+        let missing: Vec<_> = STANDARD_KEY_CODES
             .iter()
             .filter(|code| get(code).is_none())
             .collect();

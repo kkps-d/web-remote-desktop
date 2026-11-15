@@ -23,5 +23,6 @@ windows = { version = "0.62.2", features = ["Wdk_System_SystemServices", "Win32_
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.14", default-features = false, features = ["async-io", "screencast"] }
+evdev = "0.13"
 futures-channel = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
