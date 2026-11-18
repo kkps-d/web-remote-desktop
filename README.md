@@ -31,7 +31,7 @@ $gst = "$env:LOCALAPPDATA\Programs\gstreamer\1.0\msvc_x86_64"
 cargo run --release --manifest-path agent-rs/Cargo.toml
 ```
 
-Change the port with `-- --port 9000`. Set `RUST_LOG=debug` for more detail.
+Change the port with `-- --port 9000`. Set `RUST_LOG=debug` for more detail. For connection modes and stream defaults and limits, copy [`agent.example.toml`](agent-rs/agent.example.toml) to `agent.toml` next to the executable, or pass `-- --config <path>`.
 
 _Rust agent on Linux_: needs a GNOME desktop on Wayland with PipeWire (tested on Ubuntu 26.04). Install the [packages](docs/LINUX_DEV.md#packages) and Rust, and give your user [access to `/dev/uinput`](docs/LINUX_DEV.md#step-2-input-done) for input. Run the agent from a terminal in the logged-in desktop session, not over SSH:
 

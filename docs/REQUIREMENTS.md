@@ -77,10 +77,11 @@ Out of scope for now: Windows service, login screen/UAC capture, multiple monito
 
 ### Stream settings
 
-- Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder; the stats overlay shows source and stream resolution.
+- Client: a toolbar picker for resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder; the stats overlay shows source and stream resolution. Options above the agent's limits are left out, and saved settings are lowered to them.
 - Encoders the agent can't use are greyed out with the reason. GPU encoders count only on the GPU driving the captured display (found with the GStreamer device monitor); others would copy every frame between GPUs. See [known encoder issues](KNOWN_ISSUES.md#encoders).
 - Each encoder's size limits come from its sink pad template (NVENC, AMF and D3D12: 4096 px at most). A resolution or encoder change outside them is rejected with a 400 before the pipeline changes. A display larger than the default encoder accepts starts scaled down to fit.
-- Agent: `GET /sessions/{id}` returns the source resolution, current settings and the encoder list; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
+- Agent: `GET /sessions/{id}` returns the source resolution, current settings, the encoder list and the agent's limits; `PATCH /sessions/{id}` changes them while streaming. Defaults: native resolution, 30 fps, 8 Mbps.
+- Agent settings file `agent.toml` (see [`agent.example.toml`](../agent-rs/agent.example.toml)): `[direct]` (port) and `[orchprox]` (url) turn each connection mode on, at least one required; no file means direct on 8080. `[stream]` sets a maximum resolution (a bounding box; the stream starts scaled down to fit), default and maximum frame rate, and default and maximum bitrate. Changes above the limits are rejected with a 400. The orchprox url is only checked for now.
 - Agent: `GET /sessions/{id}/stats` returns cumulative encoding elapsed time and frame count. Encode time measures encoder input-to-output latency, including internal queueing.
 - Changes apply live, without SDP renegotiation: new caps on the capsfilter after `d3d11convert` rescale and change the capture rate (the encoder restarts with a keyframe), and the encoder picks up a new `bitrate` on the next frame. Switching encoder blocks the capsfilter's output for one frame and swaps the encoder bin; the new encoder starts with a keyframe.
 

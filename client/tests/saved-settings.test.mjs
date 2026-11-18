@@ -15,6 +15,7 @@ const info = {
     { id: "nvenc", label: "NVIDIA NVENC", available: true },
     { id: "amf", label: "AMD AMF", available: false, unavailableReason: "Not installed" },
   ],
+  limits: { resolution: { width: 2560, height: 1440 }, framerate: 120, bitrateKbps: 50000 },
 }
 
 test("saves the resolution as a height, or null at native resolution", () => {
@@ -35,6 +36,20 @@ test("treats null and heights at or above the source as native", () => {
     const resolved = resolveSavedSettings({ height, framerate: 30, bitrateKbps: 4000 }, info)
     assert.deepEqual([resolved.width, resolved.height], [2560, 1440], String(height))
   }
+})
+
+test("lowers saved settings to the agent's limits", () => {
+  const limited = {
+    ...info,
+    limits: { resolution: { width: 1920, height: 1080 }, framerate: 60, bitrateKbps: 25000 },
+  }
+  for (const height of [null, 1440]) {
+    assert.deepEqual(resolveSavedSettings({ height, framerate: 120, bitrateKbps: 50000 }, limited), {
+      width: 1920, height: 1080, framerate: 60, bitrateKbps: 25000,
+    })
+  }
+  const largest = { ...limited, settings: { ...info.settings, width: 1920, height: 1080 } }
+  assert.equal(toSavedStreamSettings(largest).height, null)
 })
 
 test("leaves out an encoder this agent can't run", () => {

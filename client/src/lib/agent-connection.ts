@@ -53,6 +53,14 @@ export interface StreamInfo {
   source: Resolution
   settings: StreamSettings
   encoders: EncoderOption[]
+  limits: StreamLimits
+}
+
+/** The most the agent allows. `resolution` is the source, or scaled down to the agent's limit. */
+export interface StreamLimits {
+  resolution: Resolution
+  framerate: number
+  bitrateKbps: number
 }
 
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */

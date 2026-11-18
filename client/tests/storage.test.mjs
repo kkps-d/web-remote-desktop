@@ -58,6 +58,7 @@ test("saved settings and recent devices work without storage", (t) => {
       source: { width: 1920, height: 1080 },
       settings: { width: 1920, height: 1080, framerate: 60, bitrateKbps: 8000, encoder: "nvenc" },
       encoders: [],
+      limits: { resolution: { width: 1920, height: 1080 }, framerate: 120, bitrateKbps: 50000 },
     })
     saveInputSettings({ mouse: "relative", touch: "trackpad", rateHz: 250 })
     rememberDevice("pc")

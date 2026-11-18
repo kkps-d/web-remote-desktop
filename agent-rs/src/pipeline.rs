@@ -7,7 +7,7 @@ use gstreamer::prelude::*;
 use crate::encoders::EncoderCatalog;
 use crate::platform;
 use crate::sdp::H264Codec;
-use crate::settings::{DEFAULT_FRAMERATE, Resolution, SizeLimits};
+use crate::settings::{Resolution, SizeLimits};
 
 /// An encoder bin and the parts of it the session uses.
 pub struct EncoderBin {
@@ -53,6 +53,7 @@ pub fn pipeline_description(
     capture: &str,
     opus_payload_type: Option<u32>,
     size: Option<Resolution>,
+    framerate: i32,
 ) -> String {
     let audio = opus_payload_type.map_or(String::new(), |payload_type| {
         format!("  {}", audio_description(payload_type))
@@ -63,7 +64,7 @@ pub fn pipeline_description(
          rtph264pay pt={payload_type} config-interval=-1 aggregate-mode=zero-latency ! \
          capssetter caps=\"application/x-rtp,profile-level-id=(string){profile_level_id}\" ! \
          webrtcbin name=webrtc bundle-policy=max-bundle{audio}",
-        caps = platform::output_caps(size, DEFAULT_FRAMERATE),
+        caps = platform::output_caps(size, framerate),
         payload_type = codec.payload_type,
         profile_level_id = codec.profile_level_id,
     )
@@ -80,9 +81,19 @@ fn audio_description(payload_type: u32) -> String {
 }
 
 // Streams start at native resolution (None), unless the display is larger than the encoder
-// accepts; then they start scaled down to fit, e.g. NVENC's 4096 px on a 5K display.
-pub fn initial_size(limits: SizeLimits, display: Option<Resolution>) -> Option<Resolution> {
+// accepts or the agent's `max` allows; then they start scaled down to fit, e.g. NVENC's 4096 px
+// on a 5K display. A display of unknown size starts native.
+pub fn initial_size(
+    limits: SizeLimits,
+    max: Resolution,
+    display: Option<Resolution>,
+) -> Option<Resolution> {
     let display = display?;
+    let limits = SizeLimits {
+        max_width: limits.max_width.min(max.width),
+        max_height: limits.max_height.min(max.height),
+        ..limits
+    };
     (!limits.fits(display)).then(|| limits.shrink_to_fit(display))
 }
 
@@ -136,11 +147,11 @@ mod tests {
              capssetter caps=\"application/x-rtp,profile-level-id=(string)42e01f\" ! \
              webrtcbin name=webrtc bundle-policy=max-bundle";
         assert_eq!(
-            pipeline_description(&codec, capture, None, Some(size)),
+            pipeline_description(&codec, capture, None, Some(size), 30),
             video
         );
         assert!(
-            pipeline_description(&codec, capture, None, None)
+            pipeline_description(&codec, capture, None, None, 30)
                 .contains("caps=video/x-raw(memory:D3D11Memory),format=NV12,framerate=30/1  ")
         );
 
@@ -152,7 +163,7 @@ mod tests {
             std::process::id()
         );
         assert_eq!(
-            pipeline_description(&codec, capture, Some(111), Some(size)),
+            pipeline_description(&codec, capture, Some(111), Some(size), 30),
             format!("{video}  {audio}")
         );
     }

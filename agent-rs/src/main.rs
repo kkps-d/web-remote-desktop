@@ -1,3 +1,4 @@
+mod config;
 mod encode_timing;
 mod encoders;
 mod input;
@@ -25,12 +26,11 @@ use tower_http::cors::{AllowHeaders, AllowMethods, Any, CorsLayer};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
+use crate::config::Config;
 use crate::encoders::EncoderCatalog;
 use crate::session::{StartError, UpdateError};
 use crate::settings::StreamSettingsUpdate;
 use crate::viewer_sessions::ViewerSessions;
-
-const DEFAULT_PORT: u16 = 8080;
 
 #[tokio::main]
 async fn main() {
@@ -40,13 +40,19 @@ async fn main() {
         )
         .init();
 
-    let port = match parse_port(std::env::args().skip(1)) {
-        Ok(port) => port,
+    let config = match Config::from_args(std::env::args().skip(1)) {
+        Ok(config) => config,
         Err(message) => {
             eprintln!("{message}");
             std::process::exit(2);
         }
     };
+    if let Some(orchprox) = &config.orchprox {
+        warn!(
+            "Connecting to the orchprox at {} isn't implemented yet; ignoring it.",
+            orchprox.url
+        );
+    }
 
     if let Err(error) = gstreamer::init() {
         eprintln!("Could not initialize GStreamer: {error}");
@@ -55,7 +61,7 @@ async fn main() {
     platform::use_physical_pixels();
     // Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
     let sessions = match EncoderCatalog::detect() {
-        Ok(encoders) => ViewerSessions::new(encoders),
+        Ok(encoders) => ViewerSessions::new(encoders, config.stream.clone()),
         Err(message) => {
             eprintln!("{message}");
             std::process::exit(1);
@@ -78,21 +84,27 @@ async fn main() {
         .layer(cors)
         .with_state(sessions.clone());
 
-    let listener = match listen_any_ip(port) {
-        Ok(listener) => listener,
-        Err(error) => {
-            eprintln!("Could not listen on port {port}: {error}");
-            std::process::exit(1);
-        }
+    let shutdown = async {
+        let _ = tokio::signal::ctrl_c().await;
     };
-    info!("Listening on port {port}");
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .expect("the HTTP server failed");
+    if let Some(direct) = &config.direct {
+        let port = direct.port;
+        let listener = match listen_any_ip(port) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("Could not listen on port {port}: {error}");
+                std::process::exit(1);
+            }
+        };
+        info!("Listening on port {port}");
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await
+            .expect("the HTTP server failed");
+    } else {
+        info!("Direct connections are off");
+        shutdown.await;
+    }
     sessions.shutdown();
 }
 
@@ -188,26 +200,6 @@ async fn stop(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String
     } else {
         StatusCode::NOT_FOUND
     }
-}
-
-/// Reads `--port N` or `--port=N`. The name is case-insensitive, so the C# agent's `--Port` works too.
-fn parse_port(mut args: impl Iterator<Item = String>) -> Result<u16, String> {
-    let mut port = DEFAULT_PORT;
-    while let Some(arg) = args.next() {
-        let value = match arg.split_once('=') {
-            Some((name, value)) if name.eq_ignore_ascii_case("--port") => value.to_owned(),
-            None if arg.eq_ignore_ascii_case("--port") => args
-                .next()
-                .ok_or("--port needs a value, e.g. --port 9000")?,
-            _ => {
-                return Err(format!(
-                    "Unknown argument {arg}. Usage: agent [--port 8080]"
-                ));
-            }
-        };
-        port = value.parse().map_err(|_| format!("Invalid port {value}"))?;
-    }
-    Ok(port)
 }
 
 /// Listens on every IPv4 and IPv6 address, like Kestrel's `ListenAnyIP`: a machine without IPv6

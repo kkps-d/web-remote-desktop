@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde::Serialize;
 use tracing::info;
 
+use crate::config::StreamConfig;
 use crate::encode_timing::EncodingStats;
 use crate::encoders::{EncoderCatalog, EncoderOption};
 use crate::sdp;
@@ -17,10 +18,22 @@ pub struct StreamInfo {
     source: Resolution,
     settings: StreamSettings,
     encoders: Vec<EncoderOption>,
+    limits: StreamLimits,
+}
+
+/// The most this agent allows. `resolution` is the source, or scaled down to fit the agent's
+/// maximum resolution.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamLimits {
+    resolution: Resolution,
+    framerate: i32,
+    bitrate_kbps: i32,
 }
 
 pub struct ViewerSessions {
     encoders: EncoderCatalog,
+    config: StreamConfig,
     // Serializes setup so only one pipeline captures the desktop at a time. Setup blocks for
     // seconds, so it has its own lock and stopping a session never waits for it.
     setup: Mutex<()>,
@@ -28,9 +41,10 @@ pub struct ViewerSessions {
 }
 
 impl ViewerSessions {
-    pub fn new(encoders: EncoderCatalog) -> Arc<Self> {
+    pub fn new(encoders: EncoderCatalog, config: StreamConfig) -> Arc<Self> {
         Arc::new(Self {
             encoders,
+            config,
             setup: Mutex::new(()),
             current: Mutex::new(None),
         })
@@ -53,7 +67,8 @@ impl ViewerSessions {
                 sessions.stop(id);
             }
         };
-        let (session, answer) = StreamSession::start(offer_sdp, &codec, &self.encoders, on_ended)?;
+        let (session, answer) =
+            StreamSession::start(offer_sdp, &codec, &self.encoders, &self.config, on_ended)?;
 
         let mut current = lock(&self.current);
         // stop() ignores a session that isn't current yet, so catch one that already ended.
@@ -98,7 +113,7 @@ impl ViewerSessions {
         // The lock isn't held while updating: a failed encoder switch ends the session, and
         // ending takes the lock to stop it. The Arc keeps the session valid meanwhile.
         let session = self.find(id)?;
-        let updated = session.update(update, &self.encoders);
+        let updated = session.update(update, &self.encoders, &self.config);
         Some(updated.map(|()| self.info_of(&session)))
     }
 
@@ -111,10 +126,16 @@ impl ViewerSessions {
     }
 
     fn info_of(&self, session: &StreamSession) -> StreamInfo {
+        let source = session.source_resolution();
         StreamInfo {
-            source: session.source_resolution(),
+            source,
             settings: session.settings(),
             encoders: self.encoders.options().to_vec(),
+            limits: StreamLimits {
+                resolution: self.config.largest_size(source),
+                framerate: self.config.max_fps,
+                bitrate_kbps: self.config.max_bitrate_kbps,
+            },
         }
     }
 

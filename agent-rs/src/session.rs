@@ -17,6 +17,7 @@ use gstreamer_webrtc::{
 };
 use tracing::{debug, error, info, warn};
 
+use crate::config::StreamConfig;
 use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
 use crate::input::InputChannel;
@@ -26,8 +27,7 @@ use crate::pipeline::{
 use crate::platform;
 use crate::sdp::{H264Codec, InvalidOffer, find_opus_payload_type};
 use crate::settings::{
-    DEFAULT_BITRATE_KBPS, DEFAULT_FRAMERATE, InvalidSettings, Resolution, StreamSettings,
-    StreamSettingsUpdate, plan_update,
+    InvalidSettings, Resolution, StreamSettings, StreamSettingsUpdate, plan_update,
 };
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -113,6 +113,7 @@ impl StreamSession {
         offer_sdp: &str,
         codec: &H264Codec,
         encoders: &EncoderCatalog,
+        config: &StreamConfig,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
         let mut opus_payload_type = find_opus_payload_type(offer_sdp);
@@ -124,9 +125,14 @@ impl StreamSession {
         }
         let capture = platform::Capture::open().map_err(failed)?;
         let encoder = encoders.default();
-        let size = initial_size(encoders.limits(encoder), capture.size());
-        let description =
-            pipeline_description(codec, &capture.description(), opus_payload_type, size);
+        let size = initial_size(encoders.limits(encoder), config.max_size(), capture.size());
+        let description = pipeline_description(
+            codec,
+            &capture.description(),
+            opus_payload_type,
+            size,
+            config.default_fps,
+        );
         let pipeline = gst::parse::launch(&description)
             .map_err(failed)?
             .downcast::<gst::Pipeline>()
@@ -135,7 +141,7 @@ impl StreamSession {
         let output_src = static_pad(&by_name(&pipeline, "output")?, "src")?;
         let parse_sink = static_pad(&by_name(&pipeline, "parse")?, "sink")?;
 
-        let encoder_bin = EncoderBin::create(encoders, encoder, DEFAULT_BITRATE_KBPS)?;
+        let encoder_bin = EncoderBin::create(encoders, encoder, config.default_bitrate_kbps)?;
         pipeline.add(&encoder_bin.bin).map_err(failed)?;
         if !encoder_bin.link(&output_src, &parse_sink) {
             return Err(failed(format!("Could not link the {encoder} encoder.")));
@@ -166,8 +172,8 @@ impl StreamSession {
             settings: Mutex::new(StreamSettings {
                 width: 0,
                 height: 0,
-                framerate: DEFAULT_FRAMERATE,
-                bitrate_kbps: DEFAULT_BITRATE_KBPS,
+                framerate: config.default_fps,
+                bitrate_kbps: config.default_bitrate_kbps,
                 encoder: encoder.into(),
             }),
             updating: Mutex::new(()),
@@ -225,6 +231,7 @@ impl StreamSession {
         self: &Arc<Self>,
         update: &StreamSettingsUpdate,
         encoders: &EncoderCatalog,
+        config: &StreamConfig,
     ) -> Result<(), UpdateError> {
         let _updating = self.updating.lock().unwrap();
         // ViewerSessions doesn't hold its lock while updating, so the session may have been
@@ -237,6 +244,7 @@ impl StreamSession {
             &current,
             update,
             self.source_resolution(),
+            config,
             |id| encoders.is_available(id).then(|| encoders.limits(id)),
             |id| encoders.label(id).into(),
         )?;

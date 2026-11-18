@@ -1,0 +1,20 @@
+# Agent settings. Copy to agent.toml next to the agent's executable, or pass --config <path>.
+# Without a file, the agent accepts direct connections on port 8080 with the defaults below.
+
+# Clients connect straight to this agent. Leave out to turn off.
+[direct]
+port = 8080 # --port overrides this, and turns direct connections on
+
+# The agent connects out to an orchprox. Leave out to turn off.
+# Not implemented yet: the agent only checks the url.
+# [orchprox]
+# url = "wss://orchprox.example.com"
+
+# Leave out any setting to use its default.
+[stream]
+max_res_w_px = 1920        # Bounding box for the stream; default: the display's resolution
+max_res_h_px = 1080
+default_fps = 60           # Default 30
+max_fps = 120              # 1–120, default 120
+default_bitrate_kbps = 6000 # Default 8000
+max_bitrate_kbps = 25000   # 500–50000, default 50000

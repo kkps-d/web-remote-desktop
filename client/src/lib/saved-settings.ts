@@ -10,7 +10,8 @@ const AUDIO_MUTED_KEY = "audioMuted"
 
 export const INPUT_RATES_HZ = [125, 250, 500, 1000]
 
-// Resolution is saved as a height (null = native) so it adapts to each agent's source size.
+// Resolution is saved as a height (null = the largest the agent allows, usually native) so it
+// adapts to each agent's source size.
 // Encoder is optional because settings saved before the encoder picker don't have one.
 export interface SavedStreamSettings {
   height: number | null
@@ -41,9 +42,9 @@ export function parseStreamSettings(raw: string | null): SavedStreamSettings | u
   }
 }
 
-export function toSavedStreamSettings({ source, settings }: StreamInfo): SavedStreamSettings {
+export function toSavedStreamSettings({ settings, limits }: StreamInfo): SavedStreamSettings {
   return {
-    height: settings.height === source.height ? null : settings.height,
+    height: settings.height === limits.resolution.height ? null : settings.height,
     framerate: settings.framerate,
     bitrateKbps: settings.bitrateKbps,
     encoder: settings.encoder,
@@ -51,16 +52,17 @@ export function toSavedStreamSettings({ source, settings }: StreamInfo): SavedSt
 }
 
 /**
- * Turns saved settings into concrete ones for this agent. Heights at or above the source mean
- * native, and an encoder this agent can't run is left out so it keeps its default.
+ * Turns saved settings into concrete ones for this agent. Values above the agent's limits are
+ * lowered to them, and an encoder this agent can't run is left out so it keeps its default.
  */
-export function resolveSavedSettings(saved: SavedStreamSettings, { source, encoders }: StreamInfo): Partial<StreamSettings> {
-  const size = saved.height === null || saved.height >= source.height ? source : scaleToHeight(source, saved.height)
+export function resolveSavedSettings(saved: SavedStreamSettings, { source, encoders, limits }: StreamInfo): Partial<StreamSettings> {
+  const largest = limits.resolution
+  const size = saved.height === null || saved.height >= largest.height ? largest : scaleToHeight(source, saved.height)
   const encoderAvailable = encoders.some((encoder) => encoder.id === saved.encoder && encoder.available)
   return {
     ...size,
-    framerate: saved.framerate,
-    bitrateKbps: saved.bitrateKbps,
+    framerate: Math.min(saved.framerate, limits.framerate),
+    bitrateKbps: Math.min(saved.bitrateKbps, limits.bitrateKbps),
     ...(encoderAvailable && { encoder: saved.encoder }),
   }
 }

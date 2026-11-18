@@ -4,9 +4,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_FRAMERATE: i32 = 30;
+use crate::config::StreamConfig;
+
+// The widest ranges a settings file may allow; see StreamConfig for this agent's own limits.
 pub const MAX_FRAMERATE: i32 = 120;
-pub const DEFAULT_BITRATE_KBPS: i32 = 8000;
 pub const MIN_BITRATE_KBPS: i32 = 500;
 pub const MAX_BITRATE_KBPS: i32 = 50_000;
 pub const MIN_DIMENSION: i32 = 64;
@@ -96,12 +97,13 @@ pub struct SettingsPlan {
     pub switch_encoder_first: bool,
 }
 
-/// Merges an update into the current settings and checks that it can be applied. `limits_of`
-/// returns None for an encoder that isn't available.
+/// Merges an update into the current settings and checks that it can be applied within this
+/// agent's limits. `limits_of` returns None for an encoder that isn't available.
 pub fn plan_update(
     current: &StreamSettings,
     update: &StreamSettingsUpdate,
     source: Resolution,
+    config: &StreamConfig,
     limits_of: impl Fn(&str) -> Option<SizeLimits>,
     label_of: impl Fn(&str) -> String,
 ) -> Result<SettingsPlan, InvalidSettings> {
@@ -134,12 +136,21 @@ pub fn plan_update(
             source.width, source.height
         ));
     }
-    if !(1..=MAX_FRAMERATE).contains(&next.framerate) {
-        return invalid(format!("Frame rate must be 1–{MAX_FRAMERATE} fps."));
-    }
-    if !(MIN_BITRATE_KBPS..=MAX_BITRATE_KBPS).contains(&next.bitrate_kbps) {
+    let max = config.max_size();
+    if next.width > max.width || next.height > max.height {
+        let largest = config.largest_size(source);
         return invalid(format!(
-            "Bitrate must be {MIN_BITRATE_KBPS}–{MAX_BITRATE_KBPS} kbps."
+            "This agent allows up to {}×{}.",
+            largest.width, largest.height
+        ));
+    }
+    if !(1..=config.max_fps).contains(&next.framerate) {
+        return invalid(format!("Frame rate must be 1–{} fps.", config.max_fps));
+    }
+    if !(MIN_BITRATE_KBPS..=config.max_bitrate_kbps).contains(&next.bitrate_kbps) {
+        return invalid(format!(
+            "Bitrate must be {MIN_BITRATE_KBPS}–{} kbps.",
+            config.max_bitrate_kbps
         ));
     }
     let Some(limits) = limits_of(&next.encoder) else {
@@ -223,9 +234,14 @@ mod tests {
         current: &StreamSettings,
         update: StreamSettingsUpdate,
     ) -> Result<SettingsPlan, InvalidSettings> {
-        plan_update(current, &update, SOURCE, encoder_limits, |id| {
-            format!("Label {id}")
-        })
+        plan_update(
+            current,
+            &update,
+            SOURCE,
+            &StreamConfig::default(),
+            encoder_limits,
+            |id| format!("Label {id}"),
+        )
     }
 
     fn plan(update: StreamSettingsUpdate) -> Result<SettingsPlan, InvalidSettings> {
@@ -342,6 +358,37 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn rejects_settings_above_the_agents_limits() {
+        let config = StreamConfig {
+            max_res_w_px: Some(1920),
+            max_res_h_px: Some(1080),
+            max_fps: 60,
+            max_bitrate_kbps: 25_000,
+            ..Default::default()
+        };
+        let plan = |update| {
+            plan_update(&current(), &update, SOURCE, &config, encoder_limits, |id| {
+                id.into()
+            })
+        };
+
+        assert_eq!(
+            error_message(plan(resize(2560, 1440))),
+            "This agent allows up to 1920×1080."
+        );
+        assert!(plan(rates(61, 8000)).is_err());
+        assert!(plan(rates(30, 25_001)).is_err());
+        assert!(
+            plan(StreamSettingsUpdate {
+                framerate: Some(60),
+                bitrate_kbps: Some(25_000),
+                ..resize(1920, 1080)
+            })
+            .is_ok()
+        );
     }
 
     #[test]

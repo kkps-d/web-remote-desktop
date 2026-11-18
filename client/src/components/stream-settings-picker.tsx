@@ -63,13 +63,19 @@ export function StreamSettingsPicker({ info, error, disabled, onChange }: Stream
 }
 
 function SettingsFields({ info, onChange }: { info: StreamInfo; onChange: StreamSettingsPickerProps["onChange"] }) {
-  const { settings } = info
-  const resolutions = resolutionOptions(info.source).map((size, index) => ({
+  const { settings, source, limits } = info
+  const resolutions = resolutionOptions(source, limits.resolution).map((size) => ({
     value: resolutionKey(size),
-    label: `${size.width}×${size.height}${index === 0 ? " (native)" : ""}`,
+    label: `${size.width}×${size.height}${resolutionKey(size) === resolutionKey(source) ? " (native)" : ""}`,
   }))
-  const framerates = FRAMERATES.map((fps) => ({ value: String(fps), label: `${fps} fps` }))
-  const bitrates = BITRATES_KBPS.map((kbps) => ({ value: String(kbps), label: `${kbps / 1000} Mbps` }))
+  const framerates = choices(FRAMERATES, limits.framerate, settings.framerate).map((fps) => ({
+    value: String(fps),
+    label: `${fps} fps`,
+  }))
+  const bitrates = choices(BITRATES_KBPS, limits.bitrateKbps, settings.bitrateKbps).map((kbps) => ({
+    value: String(kbps),
+    label: `${kbps / 1000} Mbps`,
+  }))
   const encoders = info.encoders.map((encoder) => ({
     value: encoder.id,
     label: encoder.label,
@@ -157,10 +163,16 @@ function SettingField({
   )
 }
 
-/** The source resolution plus common smaller sizes with the same aspect ratio. */
-function resolutionOptions(source: Resolution): Resolution[] {
-  const scaled = SCALED_HEIGHTS.filter((height) => height < source.height).map((height) => scaleToHeight(source, height))
-  return [source, ...scaled]
+/** The largest size the agent allows (usually the source) plus common smaller sizes with the same aspect ratio. */
+function resolutionOptions(source: Resolution, largest: Resolution): Resolution[] {
+  const scaled = SCALED_HEIGHTS.filter((height) => height < largest.height).map((height) => scaleToHeight(source, height))
+  return [largest, ...scaled]
+}
+
+/** The presets below the agent's limit, the limit itself and the current value, ascending. */
+function choices(presets: number[], max: number, current: number): number[] {
+  const values = new Set([...presets.filter((value) => value < max), max, current])
+  return [...values].sort((a, b) => a - b)
 }
 
 function resolutionKey({ width, height }: Resolution) {
