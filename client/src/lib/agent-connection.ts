@@ -54,6 +54,8 @@ export interface StreamInfo {
   settings: StreamSettings
   encoders: EncoderOption[]
   limits: StreamLimits
+  /** Why the stream has no audio, or null if it has. */
+  audioUnavailableReason: string | null
 }
 
 /** The most the agent allows. `resolution` is the source, or scaled down to the agent's limit. */

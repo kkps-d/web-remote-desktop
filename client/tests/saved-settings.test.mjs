@@ -16,6 +16,7 @@ const info = {
     { id: "amf", label: "AMD AMF", available: false, unavailableReason: "Not installed" },
   ],
   limits: { resolution: { width: 2560, height: 1440 }, framerate: 120, bitrateKbps: 50000 },
+  audioUnavailableReason: null,
 }
 
 test("saves the resolution as a height, or null at native resolution", () => {

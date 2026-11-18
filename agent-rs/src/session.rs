@@ -100,6 +100,8 @@ pub struct StreamSession {
     // Dropping the sender stops the connection monitor.
     stop_monitor: Mutex<Option<mpsc::Sender<()>>>,
     input: Arc<InputChannel>,
+    // Why the stream has no audio, or None if it has.
+    audio_unavailable: Option<String>,
     // Held for the stream; on Linux it is the portal session. Drop stops the pipeline before
     // the fields drop, so the capture outlives it.
     _capture: platform::Capture,
@@ -117,11 +119,15 @@ impl StreamSession {
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
         let mut opus_payload_type = find_opus_payload_type(offer_sdp);
+        let mut audio_unavailable = opus_payload_type
+            .is_none()
+            .then(|| "The viewer didn't ask for Opus audio".to_owned());
         if opus_payload_type.is_some()
             && let Some(reason) = platform::audio_unavailable()
         {
             warn!("Streaming without audio: {reason}.");
             opus_payload_type = None;
+            audio_unavailable = Some(reason.to_owned());
         }
         let capture = platform::Capture::open().map_err(failed)?;
         let encoder = encoders.default();
@@ -162,6 +168,7 @@ impl StreamSession {
             id,
             _capture: capture,
             input,
+            audio_unavailable,
             capture_src,
             output_src,
             parse_sink,
@@ -220,6 +227,11 @@ impl StreamSession {
     /// The captured desktop's resolution.
     pub fn source_resolution(&self) -> Resolution {
         caps_size(&self.capture_src)
+    }
+
+    /// Why the stream has no audio, or None if it has.
+    pub fn audio_unavailable(&self) -> Option<&str> {
+        self.audio_unavailable.as_deref()
     }
 
     pub fn encoding_stats(&self) -> EncodingStats {

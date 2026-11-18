@@ -14,11 +14,14 @@ use crate::settings::{Resolution, StreamSettings, StreamSettingsUpdate};
 
 /// What the client sees about a session's stream.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamInfo {
     source: Resolution,
     settings: StreamSettings,
     encoders: Vec<EncoderOption>,
     limits: StreamLimits,
+    /// Why the stream has no audio, or None if it has.
+    audio_unavailable_reason: Option<String>,
 }
 
 /// The most this agent allows. `resolution` is the source, or scaled down to fit the agent's
@@ -136,6 +139,7 @@ impl ViewerSessions {
                 framerate: self.config.max_fps,
                 bitrate_kbps: self.config.max_bitrate_kbps,
             },
+            audio_unavailable_reason: session.audio_unavailable().map(str::to_owned),
         }
     }
 

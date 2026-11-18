@@ -59,6 +59,7 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   })
 
   const audio = useStreamPlayback(videoRef, address, connection)
+  const audioUnavailableReason = streamSettings.info?.audioUnavailableReason
 
   // Remember the device for the connect screen, refreshing its thumbnail so one survives a closed tab.
   useEffect(() => {
@@ -117,9 +118,15 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             onBasicChange={(basic) => setStatsVisibility((current) => ({ ...current, basic }))}
             onAdvancedChange={(advanced) => setStatsVisibility((current) => ({ ...current, advanced }))}
           />
-          <ToolbarButton label={audio.muted ? "Unmute audio" : "Mute audio"} onClick={audio.toggleMuted}>
-            {audio.muted ? <VolumeX /> : <Volume2 />}
-          </ToolbarButton>
+          {audioUnavailableReason ? (
+            <ToolbarButton label={`No audio: ${audioUnavailableReason}`} disabled onClick={audio.toggleMuted}>
+              <VolumeX />
+            </ToolbarButton>
+          ) : (
+            <ToolbarButton label={audio.muted ? "Unmute audio" : "Mute audio"} onClick={audio.toggleMuted}>
+              {audio.muted ? <VolumeX /> : <Volume2 />}
+            </ToolbarButton>
+          )}
           <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
@@ -172,17 +179,30 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
 
 function ToolbarButton({
   label,
+  disabled = false,
   onClick,
   children,
 }: {
   label: string
+  disabled?: boolean
   onClick: () => void
   children: ReactNode
 }) {
+  // A disabled button stays focusable and hoverable so its tooltip can say why.
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<Button variant="ghost" size="icon" aria-label={label} onClick={onClick} />}
+        render={
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={label}
+            disabled={disabled}
+            focusableWhenDisabled
+            className="data-disabled:opacity-50"
+            onClick={onClick}
+          />
+        }
       >
         {children}
       </TooltipTrigger>
