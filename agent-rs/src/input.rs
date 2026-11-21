@@ -277,7 +277,7 @@ pub struct Contact {
 /// Parses one message; an error means it is malformed.
 pub fn parse(text: &str) -> serde_json::Result<InputMessage> {
     let message: Value = serde_json::from_str(text)?;
-    // The C# agent reads a null type as an unknown one, but serde's tag must be a string.
+    // A null type counts as an unknown one, but serde's tag must be a string.
     if message.get("type").is_some_and(Value::is_null) {
         return Ok(InputMessage::Unknown);
     }

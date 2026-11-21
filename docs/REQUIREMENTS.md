@@ -27,22 +27,19 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
 
 ## Agent
 
-- Windows only for now; keep capture and input code isolated so other OSes can be added later.
-- C# (.NET 10) console app running in the logged-in user's session (not a Windows service).
-- GStreamer does capture, encoding and WebRTC; C# only wires it together.
-  - Bindings: `gstreamer-sharp-netcore` 0.0.8 (the only `gstreamer-sharp` package on NuGet).
+- Rust app (`agent-rs/`) for Windows and Linux, running in the logged-in user's session (not a Windows service). OS-specific code is under `src/platform/`.
+- GStreamer does capture, encoding and WebRTC; Rust only wires it together.
+  - Bindings: `gstreamer-rs`.
   - Pipeline: `d3d11screencapturesrc ! d3d11convert ! <encoder bin> ! h264parse ! rtph264pay ! capssetter ! webrtcbin`.
   - Encoder: one of the H.264 picks in [ENCODERS.md](ENCODERS.md), chosen per session; the default is the first available (NVENC, AMF, Media Foundation, Direct3D 12, x264, Microsoft software).
-- Signaling: ASP.NET Core minimal API, `POST /offer` with CORS.
+- Signaling: axum, `POST /offer` with CORS.
   - The browser is the offerer (receive-only video + `input` data channel).
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
-- Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into `SendInput` calls via P/Invoke.
-- Fallback if `webrtcbin` from C# becomes too painful: keep GStreamer for capture/encoding, use SIPSorcery (pure C# WebRTC) for WebRTC.
-- Rust port (`agent-rs/`): the same API, protocol and pipeline with `gstreamer-rs`, which is maintained upstream and suits the planned Linux support (PipeWire, portals). It replaces the C# agent, which is archived: kept for reference and no longer updated. OS-specific code is under `src/platform/`.
+- Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into OS input (`SendInput` on Windows).
 
 ### Spike results (`spikes/GstSpike`)
 
-The C# + GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
+The GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
 Out of scope for now: Windows service, login screen/UAC capture, multiple monitors. Audio comes in v1.1.
 
@@ -57,7 +54,7 @@ Out of scope for now: Windows service, login screen/UAC capture, multiple monito
 
 ### v0.5 scope
 
-- Repo layout: `agent/` (C#), `client/` (React); `spikes/` kept for reference.
+- Repo layout: `agent-rs/` (Rust), `client/` (React); `spikes/` kept for reference.
 - Client:
   - Connect form for the agent address, pre-filled with the last used address (localStorage).
   - Recent devices below the form: up to 8 agents the client connected to, newest first, each with a screenshot thumbnail and last-connected time. Click to reconnect; forget removes one. Stored in localStorage; the thumbnail refreshes 2 s after connecting, every minute, and on disconnect.
@@ -123,9 +120,9 @@ JSON text messages on the `input` channel. Numbers other than `x` and `y` are in
 
 #### Data channel spike results (branch `spike/data-channel`)
 
-`webrtcbin` data channels work from C#. Tested on localhost with a 2560×1440 display at 100% scaling:
+`webrtcbin` data channels work. Tested on localhost with a 2560×1440 display at 100% scaling:
 
-- The bindings have no `GstWebRTCDataChannel` wrapper, so the agent connects `on-data-channel`, `on-open`, `on-close` and `on-message-string` with `g_signal_connect_data` and replies with `gst_webrtc_data_channel_send_string` (P/Invoke). Connect `on-data-channel` before setting the remote description.
+- Connect `on-data-channel` before setting the remote description.
 - Round trip (ping echo): 0.6 ms median. A burst of 2,000 JSON messages, each injected with `SendInput`, was handled in about 100 ms.
 - Absolute and relative moves landed on the exact pixel. Relative moves skip acceleration only because "Enhance pointer precision" was off; to keep 1:1 movement with it on, the agent should apply deltas to the current cursor position and move absolutely.
 - `show-cursor` on `d3d11screencapturesrc` can be toggled while streaming.

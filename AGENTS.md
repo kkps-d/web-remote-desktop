@@ -19,11 +19,6 @@ These instructions apply throughout this repository. Follow [DESIGN_GUIDELINES.m
 - Add short comments for complex logic, non-obvious decisions, or constraints. Explain why; avoid narrating obvious code.
 - Commit using conventional commit messages style
 
-## Agent code
-
-- The agent is the Rust crate in `agent-rs/`. Make all agent changes there.
-- The C# agent in `agent/` and `agent.Tests/` is archived for reference. Don't update it, even to keep it in step with `agent-rs/`.
-
 ## Build React interfaces
 
 - Use shadcn/ui as the component foundation.

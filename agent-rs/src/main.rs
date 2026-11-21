@@ -69,8 +69,7 @@ async fn main() {
     };
 
     // The web client is hosted on a different origin, and needs the Location header to end its session.
-    // Requested headers and methods are echoed back like ASP.NET's AllowAnyHeader and
-    // AllowAnyMethod; a `*` wouldn't cover Authorization.
+    // Requested headers and methods are echoed back; a `*` wouldn't cover Authorization.
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(AllowMethods::mirror_request())

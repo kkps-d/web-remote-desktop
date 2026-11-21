@@ -26,7 +26,7 @@ static OPUS_RTPMAP: LazyLock<Regex> =
 pub fn find_h264_codec(offer_sdp: &str) -> Result<H264Codec, InvalidOffer> {
     for rtpmap in H264_RTPMAP.captures_iter(offer_sdp) {
         let payload_type = &rtpmap[1];
-        // `.` stops at \n but not \r, so the value keeps the CRLF's \r, as in the C# agent.
+        // `.` stops at \n but not \r, so the value keeps the CRLF's \r.
         let fmtp = Regex::new(&format!("a=fmtp:{payload_type} (.*)")).unwrap();
         let Some(parameters) = fmtp.captures(offer_sdp).map(|fmtp| fmtp[1].to_owned()) else {
             continue;

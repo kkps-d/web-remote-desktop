@@ -202,7 +202,7 @@ struct Args {
 }
 
 impl Args {
-    /// Reads `--name value` or `--name=value`. Names are case-insensitive, so the C# agent's
+    /// Reads `--name value` or `--name=value`. Names are case-insensitive, so
     /// `--Port` works too.
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Self, String> {
         let mut parsed = Self::default();

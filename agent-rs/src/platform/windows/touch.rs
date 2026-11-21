@@ -190,8 +190,7 @@ struct Device {
     failed: bool,
 }
 
-// SAFETY: the handle isn't tied to the thread that created it; the C# agent injected through it
-// from both the message thread and timer threads. The injector's mutex serializes its use.
+// SAFETY: the handle isn't tied to the thread that created it. The injector's mutex serializes its use.
 unsafe impl Send for Device {}
 
 impl Device {
