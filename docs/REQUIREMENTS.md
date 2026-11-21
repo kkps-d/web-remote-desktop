@@ -37,7 +37,7 @@ Running summary of requirement discussions. Open questions are marked **TBD**.
   - The agent passes the offer to `webrtcbin`, waits for ICE gathering to complete, and returns the answer.
 - Input: data channel messages (via `webrtcbin`'s `on-data-channel`) are translated into OS input (`SendInput` on Windows).
 
-### Spike results (`spikes/GstSpike`)
+### Spike results
 
 The GStreamer + `webrtcbin` approach works: the desktop (2560×1440) streams to Chrome via one HTTP POST, encoded on the GPU by `mfh264enc`. Requires GStreamer 1.28.4 or later (official MSVC build); earlier 1.28 releases hang with process loopback audio. See the [GStreamer workarounds](KNOWN_ISSUES.md#gstreamer-workarounds).
 
@@ -54,7 +54,7 @@ Out of scope for now: Windows service, login screen/UAC capture, multiple monito
 
 ### v0.5 scope
 
-- Repo layout: `agent-rs/` (Rust), `client/` (React); `spikes/` kept for reference.
+- Repo layout: `agent-rs/` (Rust), `client/` (React).
 - Client:
   - Connect form for the agent address, pre-filled with the last used address (localStorage).
   - Recent devices below the form: up to 8 agents the client connected to, newest first, each with a screenshot thumbnail and last-connected time. Click to reconnect; forget removes one. Stored in localStorage; the thumbnail refreshes 2 s after connecting, every minute, and on disconnect.
