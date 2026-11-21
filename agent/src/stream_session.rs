@@ -1,4 +1,4 @@
-//! One viewer's stream: runs the pipeline from `pipeline.rs`, answers the viewer's SDP offer,
+//! One viewer's stream: runs the pipeline from `pipeline`, answers the viewer's SDP offer,
 //! and runs until it is stopped or the connection ends.
 
 use std::str::FromStr;
@@ -17,17 +17,15 @@ use gstreamer_webrtc::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::config::StreamConfig;
 use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
 use crate::input::InputChannel;
-use crate::pipeline::{
-    EncoderBin, by_name, caps_size, initial_size, pipeline_description, static_pad,
-};
+use crate::pipeline::{EncoderBin, by_name, caps_size, pipeline_description, static_pad};
 use crate::platform;
 use crate::sdp::{H264Codec, InvalidOffer, find_opus_payload_type};
-use crate::settings::{
-    InvalidSettings, Resolution, StreamSettings, StreamSettingsUpdate, plan_update,
+use crate::stream_settings::{
+    InvalidSettings, Resolution, StreamConfig, StreamSettings, StreamSettingsUpdate, initial_size,
+    plan_update,
 };
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10);

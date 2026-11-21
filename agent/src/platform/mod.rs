@@ -1,13 +1,31 @@
 //! Everything that differs per OS: capture, audio, encoders, display lookup and input
-//! injection. Shared code calls the same names on every OS.
+//! injection. Each OS module provides the items re-exported below, and shared code uses only
+//! these.
 
 #[cfg(windows)]
 mod windows;
 // `self::` because a bare `windows` would also name the `windows` crate.
 #[cfg(windows)]
-pub use self::windows::*;
+use self::windows as os;
 
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use self::linux::*;
+use self::linux as os;
+
+pub use os::{
+    Capture, ENCODERS, InputInjector, TouchInjector, audio_capture, audio_unavailable,
+    find_display_gpu, output_caps, runs_on, show_cursor, use_physical_pixels,
+};
+
+/// An encoder this OS can use, if it is installed.
+pub struct EncoderDefinition {
+    pub id: &'static str,
+    pub label: &'static str,
+    /// Matches the element factory names that provide it.
+    pub factory_pattern: &'static str,
+    /// Whether it encodes on a GPU, i.e. its factory has the Hardware class.
+    pub on_gpu: bool,
+    /// The encoder bin's description, from the factory name and the bitrate in kbps.
+    pub describe: fn(&str, i32) -> String,
+}

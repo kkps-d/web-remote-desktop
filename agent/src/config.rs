@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::settings::{
-    MAX_BITRATE_KBPS, MAX_FRAMERATE, MIN_BITRATE_KBPS, MIN_DIMENSION, Resolution, SizeLimits,
-};
+use crate::stream_settings::StreamConfig;
 
 pub const DEFAULT_PORT: u16 = 8080;
 const FILE_NAME: &str = "agent.toml";
@@ -53,88 +51,6 @@ impl Default for DirectConfig {
 pub struct OrchproxConfig {
     /// The orchprox's WebSocket address, e.g. `wss://orchprox.example.com`.
     pub url: String,
-}
-
-/// The stream's settings when a viewer connects, and the most a viewer may change them to.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct StreamConfig {
-    /// A bounding box for the stream; None means no limit beyond the display's resolution.
-    pub max_res_w_px: Option<i32>,
-    pub max_res_h_px: Option<i32>,
-    pub default_fps: i32,
-    pub max_fps: i32,
-    pub default_bitrate_kbps: i32,
-    pub max_bitrate_kbps: i32,
-}
-
-impl Default for StreamConfig {
-    fn default() -> Self {
-        Self {
-            max_res_w_px: None,
-            max_res_h_px: None,
-            default_fps: 30,
-            max_fps: MAX_FRAMERATE,
-            default_bitrate_kbps: 8000,
-            max_bitrate_kbps: MAX_BITRATE_KBPS,
-        }
-    }
-}
-
-impl StreamConfig {
-    /// The bounding box streams must fit in.
-    pub fn max_size(&self) -> Resolution {
-        Resolution {
-            width: self.max_res_w_px.unwrap_or(i32::MAX),
-            height: self.max_res_h_px.unwrap_or(i32::MAX),
-        }
-    }
-
-    /// The largest stream size allowed for the source: the source itself, or scaled down to fit
-    /// the bounding box with the same aspect ratio.
-    pub fn largest_size(&self, source: Resolution) -> Resolution {
-        let max = self.max_size();
-        let limits = SizeLimits {
-            min_width: 0,
-            max_width: max.width,
-            min_height: 0,
-            max_height: max.height,
-        };
-        if limits.fits(source) {
-            source
-        } else {
-            limits.shrink_to_fit(source)
-        }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        for (name, value) in [
-            ("max_res_w_px", self.max_res_w_px),
-            ("max_res_h_px", self.max_res_h_px),
-        ] {
-            if value.is_some_and(|value| value < MIN_DIMENSION) {
-                return Err(format!("{name} must be at least {MIN_DIMENSION}."));
-            }
-        }
-        if !(1..=MAX_FRAMERATE).contains(&self.max_fps) {
-            return Err(format!("max_fps must be 1–{MAX_FRAMERATE}."));
-        }
-        if !(1..=self.max_fps).contains(&self.default_fps) {
-            return Err(format!("default_fps must be 1–{} (max_fps).", self.max_fps));
-        }
-        if !(MIN_BITRATE_KBPS..=MAX_BITRATE_KBPS).contains(&self.max_bitrate_kbps) {
-            return Err(format!(
-                "max_bitrate_kbps must be {MIN_BITRATE_KBPS}–{MAX_BITRATE_KBPS}."
-            ));
-        }
-        if !(MIN_BITRATE_KBPS..=self.max_bitrate_kbps).contains(&self.default_bitrate_kbps) {
-            return Err(format!(
-                "default_bitrate_kbps must be {MIN_BITRATE_KBPS}–{} (max_bitrate_kbps).",
-                self.max_bitrate_kbps
-            ));
-        }
-        Ok(())
-    }
 }
 
 impl Config {
@@ -355,17 +271,5 @@ mod tests {
         assert!(args(&["--port"]).is_err());
         assert!(args(&["--port", "x"]).is_err());
         assert!(args(&["--verbose"]).is_err());
-    }
-
-    #[test]
-    fn the_largest_size_fits_the_box_keeping_the_aspect_ratio() {
-        let config = stream("max_res_w_px = 1920\nmax_res_h_px = 1080").unwrap();
-        let size = |width, height| Resolution { width, height };
-        assert_eq!(config.largest_size(size(2560, 1440)), size(1920, 1080));
-        assert_eq!(config.largest_size(size(3440, 1440)), size(1920, 802));
-        assert_eq!(config.largest_size(size(1280, 720)), size(1280, 720));
-
-        let width_only = stream("max_res_w_px = 1280").unwrap();
-        assert_eq!(width_only.largest_size(size(2560, 1440)), size(1280, 720));
     }
 }

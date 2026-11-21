@@ -18,8 +18,8 @@ use ::windows::core::PCWSTR;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-use crate::encoders::EncoderDefinition;
-use crate::settings::Resolution;
+use super::EncoderDefinition;
+use crate::stream_settings::Resolution;
 
 /// Captures the primary monitor on the GPU, ready for the output capsfilter.
 pub struct Capture;

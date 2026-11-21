@@ -7,7 +7,7 @@ use gstreamer::prelude::*;
 use crate::encoders::EncoderCatalog;
 use crate::platform;
 use crate::sdp::H264Codec;
-use crate::settings::{Resolution, SizeLimits};
+use crate::stream_settings::Resolution;
 
 /// An encoder bin and the parts of it the session uses.
 pub struct EncoderBin {
@@ -78,23 +78,6 @@ fn audio_description(payload_type: u32) -> String {
          opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt={payload_type} ! webrtc.",
         capture = platform::audio_capture(),
     )
-}
-
-// Streams start at native resolution (None), unless the display is larger than the encoder
-// accepts or the agent's `max` allows; then they start scaled down to fit, e.g. NVENC's 4096 px
-// on a 5K display. A display of unknown size starts native.
-pub fn initial_size(
-    limits: SizeLimits,
-    max: Resolution,
-    display: Option<Resolution>,
-) -> Option<Resolution> {
-    let display = display?;
-    let limits = SizeLimits {
-        max_width: limits.max_width.min(max.width),
-        max_height: limits.max_height.min(max.height),
-        ..limits
-    };
-    (!limits.fits(display)).then(|| limits.shrink_to_fit(display))
 }
 
 /// The size in a pad's caps, or 0×0 before the first frame.

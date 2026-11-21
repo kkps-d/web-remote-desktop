@@ -5,12 +5,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde::Serialize;
 use tracing::info;
 
-use crate::config::StreamConfig;
 use crate::encode_timing::EncodingStats;
 use crate::encoders::{EncoderCatalog, EncoderOption};
 use crate::sdp;
-use crate::session::{StartError, StreamSession, UpdateError};
-use crate::settings::{Resolution, StreamSettings, StreamSettingsUpdate};
+use crate::stream_session::{StartError, StreamSession, UpdateError};
+use crate::stream_settings::{Resolution, StreamConfig, StreamSettings, StreamSettingsUpdate};
 
 /// What the client sees about a session's stream.
 #[derive(Serialize)]

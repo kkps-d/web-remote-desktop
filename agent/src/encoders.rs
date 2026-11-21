@@ -10,20 +10,8 @@ use regex::Regex;
 use serde::Serialize;
 use tracing::info;
 
-use crate::platform;
-use crate::settings::SizeLimits;
-
-/// An encoder this OS can use, if it is installed.
-pub struct EncoderDefinition {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Matches the element factory names that provide it.
-    pub factory_pattern: &'static str,
-    /// Whether it encodes on a GPU, i.e. its factory has the Hardware class.
-    pub on_gpu: bool,
-    /// The encoder bin's description, from the factory name and the bitrate in kbps.
-    pub describe: fn(&str, i32) -> String,
-}
+use crate::platform::{self, EncoderDefinition};
+use crate::stream_settings::SizeLimits;
 
 /// An encoder the viewer can pick, and why it can't be used if it isn't available.
 #[derive(Debug, Clone, Serialize)]

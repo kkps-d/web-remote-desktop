@@ -1,16 +1,15 @@
-//! Stream settings, the frame sizes encoders accept, and checking a settings change.
+//! Stream settings: the agent's defaults and limits (`[stream]` in agent.toml), the frame sizes
+//! encoders accept, and checking a settings change.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::StreamConfig;
-
 // The widest ranges a settings file may allow; see StreamConfig for this agent's own limits.
-pub const MAX_FRAMERATE: i32 = 120;
-pub const MIN_BITRATE_KBPS: i32 = 500;
-pub const MAX_BITRATE_KBPS: i32 = 50_000;
-pub const MIN_DIMENSION: i32 = 64;
+const MAX_FRAMERATE: i32 = 120;
+const MIN_BITRATE_KBPS: i32 = 500;
+const MAX_BITRATE_KBPS: i32 = 50_000;
+const MIN_DIMENSION: i32 = 64;
 
 /// Requested stream settings are out of range.
 #[derive(Debug, PartialEq)]
@@ -88,6 +87,105 @@ impl fmt::Display for SizeLimits {
             self.min_width, self.min_height, self.max_width, self.max_height
         )
     }
+}
+
+/// The stream's settings when a viewer connects, and the most a viewer may change them to.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StreamConfig {
+    /// A bounding box for the stream; None means no limit beyond the display's resolution.
+    pub max_res_w_px: Option<i32>,
+    pub max_res_h_px: Option<i32>,
+    pub default_fps: i32,
+    pub max_fps: i32,
+    pub default_bitrate_kbps: i32,
+    pub max_bitrate_kbps: i32,
+}
+
+impl Default for StreamConfig {
+    fn default() -> Self {
+        Self {
+            max_res_w_px: None,
+            max_res_h_px: None,
+            default_fps: 30,
+            max_fps: MAX_FRAMERATE,
+            default_bitrate_kbps: 8000,
+            max_bitrate_kbps: MAX_BITRATE_KBPS,
+        }
+    }
+}
+
+impl StreamConfig {
+    /// The bounding box streams must fit in.
+    pub fn max_size(&self) -> Resolution {
+        Resolution {
+            width: self.max_res_w_px.unwrap_or(i32::MAX),
+            height: self.max_res_h_px.unwrap_or(i32::MAX),
+        }
+    }
+
+    /// The largest stream size allowed for the source: the source itself, or scaled down to fit
+    /// the bounding box with the same aspect ratio.
+    pub fn largest_size(&self, source: Resolution) -> Resolution {
+        let max = self.max_size();
+        let limits = SizeLimits {
+            min_width: 0,
+            max_width: max.width,
+            min_height: 0,
+            max_height: max.height,
+        };
+        if limits.fits(source) {
+            source
+        } else {
+            limits.shrink_to_fit(source)
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        for (name, value) in [
+            ("max_res_w_px", self.max_res_w_px),
+            ("max_res_h_px", self.max_res_h_px),
+        ] {
+            if value.is_some_and(|value| value < MIN_DIMENSION) {
+                return Err(format!("{name} must be at least {MIN_DIMENSION}."));
+            }
+        }
+        if !(1..=MAX_FRAMERATE).contains(&self.max_fps) {
+            return Err(format!("max_fps must be 1–{MAX_FRAMERATE}."));
+        }
+        if !(1..=self.max_fps).contains(&self.default_fps) {
+            return Err(format!("default_fps must be 1–{} (max_fps).", self.max_fps));
+        }
+        if !(MIN_BITRATE_KBPS..=MAX_BITRATE_KBPS).contains(&self.max_bitrate_kbps) {
+            return Err(format!(
+                "max_bitrate_kbps must be {MIN_BITRATE_KBPS}–{MAX_BITRATE_KBPS}."
+            ));
+        }
+        if !(MIN_BITRATE_KBPS..=self.max_bitrate_kbps).contains(&self.default_bitrate_kbps) {
+            return Err(format!(
+                "default_bitrate_kbps must be {MIN_BITRATE_KBPS}–{} (max_bitrate_kbps).",
+                self.max_bitrate_kbps
+            ));
+        }
+        Ok(())
+    }
+}
+
+// Streams start at native resolution (None), unless the display is larger than the encoder
+// accepts or the agent's `max` allows; then they start scaled down to fit, e.g. NVENC's 4096 px
+// on a 5K display. A display of unknown size starts native.
+pub fn initial_size(
+    limits: SizeLimits,
+    max: Resolution,
+    display: Option<Resolution>,
+) -> Option<Resolution> {
+    let display = display?;
+    let limits = SizeLimits {
+        max_width: limits.max_width.min(max.width),
+        max_height: limits.max_height.min(max.height),
+        ..limits
+    };
+    (!limits.fits(display)).then(|| limits.shrink_to_fit(display))
 }
 
 /// Checked new settings, and whether to switch the encoder before resizing.
@@ -492,5 +590,50 @@ mod tests {
     #[test]
     fn leaves_a_size_that_fits_alone() {
         assert_eq!(NVENC.shrink_to_fit(size(1920, 1080)), size(1920, 1080));
+    }
+
+    #[test]
+    fn the_largest_size_fits_the_box_keeping_the_aspect_ratio() {
+        let config = StreamConfig {
+            max_res_w_px: Some(1920),
+            max_res_h_px: Some(1080),
+            ..Default::default()
+        };
+        assert_eq!(config.largest_size(size(2560, 1440)), size(1920, 1080));
+        assert_eq!(config.largest_size(size(3440, 1440)), size(1920, 802));
+        assert_eq!(config.largest_size(size(1280, 720)), size(1280, 720));
+
+        let width_only = StreamConfig {
+            max_res_w_px: Some(1280),
+            ..Default::default()
+        };
+        assert_eq!(width_only.largest_size(size(2560, 1440)), size(1280, 720));
+    }
+
+    const NO_MAX: Resolution = Resolution {
+        width: i32::MAX,
+        height: i32::MAX,
+    };
+
+    #[test]
+    fn starts_native_when_the_display_fits() {
+        assert_eq!(initial_size(NVENC, NO_MAX, Some(size(2560, 1440))), None);
+        assert_eq!(initial_size(NVENC, NO_MAX, None), None);
+    }
+
+    #[test]
+    fn starts_scaled_to_the_encoders_limits() {
+        assert_eq!(
+            initial_size(NVENC, NO_MAX, Some(size(5120, 2880))),
+            Some(size(4096, 2304))
+        );
+    }
+
+    #[test]
+    fn starts_scaled_to_the_agents_maximum() {
+        assert_eq!(
+            initial_size(NVENC, size(1920, 1080), Some(size(2560, 1440))),
+            Some(size(1920, 1080))
+        );
     }
 }
