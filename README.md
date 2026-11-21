@@ -14,7 +14,7 @@ A simple remote desktop app: a web client that connects to an agent running on t
 - [Linux development](docs/LINUX_DEV.md): the Linux VM setup
 - [Encoders](docs/ENCODERS.md): Windows encoder picks and benchmarks
 - [Spikes](docs/spikes/): measurements from the data channel and audio spikes
-- [Design guidelines](docs/DESIGN_GUIDELINES.md): UI rules for the client
+- [Design guidelines](docs/DESIGN_GUIDELINES.md): coding rules for the client and agent
 
 ## Running
 
@@ -99,4 +99,7 @@ cargo test --manifest-path agent/Cargo.toml
 cargo fmt --check --manifest-path agent/Cargo.toml
 cargo clippy --manifest-path agent/Cargo.toml --all-targets -- -D warnings
 npm --prefix client test
+npm --prefix client run format:check
+npm --prefix client run lint
+npm --prefix client run build
 ```
