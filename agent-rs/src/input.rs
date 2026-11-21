@@ -1,4 +1,4 @@
-//! The viewer's "input" data channel: its messages (see the input protocol in REQUIREMENTS.md)
+//! The viewer's "input" data channel: its messages (see the input protocol in docs/ARCHITECTURE.md)
 //! and how they reach the OS. Held keys, buttons and touches are released when the channel
 //! closes or the session ends.
 

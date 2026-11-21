@@ -1,6 +1,6 @@
-# Encoder picks
+# Encoder picks (Windows)
 
-Candidate H.264 encoders for each kind of hardware, to verify on real machines. Only H.264 is picked because almost every viewer, including smart TVs and low-power devices, decodes it in hardware.
+Candidate H.264 encoders on Windows for each kind of hardware, to verify on real machines. On Linux the agent lists x264, VA and NVENC; only x264 works for now. Only H.264 is picked because almost every viewer, including smart TVs and low-power devices, decodes it in hardware.
 
 Each group has a main pick and a fallback that loads through a different driver path, so one failing doesn't take out the other.
 

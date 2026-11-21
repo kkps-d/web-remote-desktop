@@ -8,9 +8,13 @@ A simple remote desktop app: a web client that connects to an agent running on t
 
 ## Docs
 
-- [Requirements](docs/REQUIREMENTS.md): the design (v1.1)
+- [Architecture](docs/ARCHITECTURE.md): how the client and agent work
+- [Roadmap](docs/ROADMAP.md): milestones, planned work and open questions
 - [Known issues](docs/KNOWN_ISSUES.md): current limitations and workarounds
-- [Linux development](docs/LINUX_DEV.md): the Linux VM setup and how the Linux agent works
+- [Linux development](docs/LINUX_DEV.md): the Linux VM setup
+- [Encoders](docs/ENCODERS.md): Windows encoder picks and benchmarks
+- [Spikes](docs/spikes/): measurements from the data channel and audio spikes
+- [Design guidelines](docs/DESIGN_GUIDELINES.md): UI rules for the client
 
 ## Running
 
@@ -50,7 +54,7 @@ Requirements:
 
 - A GNOME desktop on Wayland with PipeWire (tested on Ubuntu 26.04)
 - The [packages](docs/LINUX_DEV.md#packages) and Rust
-- [Access to `/dev/uinput`](docs/LINUX_DEV.md#step-2-input-done) for your user, for input
+- [Access to `/dev/uinput`](docs/LINUX_DEV.md#input-access) for your user, for input
 
 Run the agent from a terminal in the logged-in desktop session, not over SSH:
 

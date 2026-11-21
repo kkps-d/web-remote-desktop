@@ -1,5 +1,5 @@
 //! Mouse and keyboard input through uinput: virtual devices that the compositor handles like
-//! real ones. Needs write access to /dev/uinput; see LINUX_DEV.md.
+//! real ones. Needs write access to /dev/uinput; see docs/LINUX_DEV.md.
 
 use std::io;
 

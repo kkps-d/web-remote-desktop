@@ -56,7 +56,7 @@ impl Capture {
 
 /// Captures what every app plays except the agent itself (process loopback), for the audio
 /// branch. Unlike loopback of the default device, it keeps working when the output device
-/// switches, at about 40 ms more latency; see REQUIREMENTS.md. Without provide-clock=false the
+/// switches, at about 40 ms more latency; see docs/spikes/audio.md. Without provide-clock=false the
 /// source would be the pipeline clock, which stalls on a device switch and freezes the video too.
 pub fn audio_capture() -> String {
     format!(
