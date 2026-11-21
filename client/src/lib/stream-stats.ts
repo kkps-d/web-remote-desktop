@@ -10,7 +10,9 @@ export interface StatsSample {
 
 // Counters can disappear or reset when the stream restarts. Never show a negative rate.
 function delta(current?: number, previous?: number) {
-  return current !== undefined && previous !== undefined && current >= previous ? current - previous : undefined
+  return current !== undefined && previous !== undefined && current >= previous
+    ? current - previous
+    : undefined
 }
 
 function average(total?: number, count?: number) {
@@ -34,7 +36,9 @@ export function readStreamStats(report: RTCStatsReport, previous?: StatsSample) 
   const received = delta(video?.packetsReceived, old?.packetsReceived)
   const packets = lost !== undefined && received !== undefined ? lost + received : undefined
   const transport = video?.transportId ? report.get(video.transportId) : undefined
-  const pair = transport?.selectedCandidatePairId ? report.get(transport.selectedCandidatePairId) : undefined
+  const pair = transport?.selectedCandidatePairId
+    ? report.get(transport.selectedCandidatePairId)
+    : undefined
   const codec = video?.codecId ? report.get(video.codecId) : undefined
 
   return {
@@ -42,10 +46,14 @@ export function readStreamStats(report: RTCStatsReport, previous?: StatsSample) 
     width: video?.frameWidth,
     height: video?.frameHeight,
     fps: video?.framesPerSecond ?? (elapsed ? average(decoded, elapsed / 1000) : undefined),
-    bitrateKbps: elapsed ? average(bytes === undefined ? undefined : bytes * 8, elapsed) : undefined,
+    bitrateKbps: elapsed
+      ? average(bytes === undefined ? undefined : bytes * 8, elapsed)
+      : undefined,
     rttMs: pair?.currentRoundTripTime === undefined ? undefined : pair.currentRoundTripTime * 1000,
     decodeMs: milliseconds(average(delta(video?.totalDecodeTime, old?.totalDecodeTime), decoded)),
-    lossPercent: packets ? average(lost === undefined ? undefined : lost * 100, packets) : undefined,
+    lossPercent: packets
+      ? average(lost === undefined ? undefined : lost * 100, packets)
+      : undefined,
     jitterMs: video?.jitter === undefined ? undefined : video.jitter * 1000,
     bufferMs: milliseconds(
       average(

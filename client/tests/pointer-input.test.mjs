@@ -23,7 +23,10 @@ test("handles bars above and below", () => {
 
 test("clamps to the content edge when asked", () => {
   assert.deepEqual(toVideoFraction(at(0, 450), box, video, { clamp: true }), { x: 0, y: 0.5 })
-  assert.deepEqual(toVideoFraction({ clientX: 5000, clientY: -10 }, box, video, { clamp: true }), { x: 1, y: 0 })
+  assert.deepEqual(toVideoFraction({ clientX: 5000, clientY: -10 }, box, video, { clamp: true }), {
+    x: 1,
+    y: 0,
+  })
 })
 
 test("returns null until the video size is known", () => {

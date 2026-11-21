@@ -22,7 +22,9 @@ function DialogContent({ className, children, ...props }: DialogPrimitive.Popup.
         {...props}
       >
         {children}
-        <DialogPrimitive.Close render={<Button variant="ghost" size="icon" className="absolute top-3 right-3" />}>
+        <DialogPrimitive.Close
+          render={<Button variant="ghost" size="icon" className="absolute top-3 right-3" />}
+        >
           <X aria-hidden />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>

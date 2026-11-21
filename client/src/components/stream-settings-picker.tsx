@@ -4,9 +4,20 @@ import { LoaderCircle, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { scaleToHeight, type Resolution, type StreamInfo, type StreamSettings } from "@/lib/agent-connection"
+import {
+  scaleToHeight,
+  type Resolution,
+  type StreamInfo,
+  type StreamSettings,
+} from "@/lib/agent-connection"
 
 const FRAMERATES = [15, 30, 60, 120]
 const BITRATES_KBPS = [2000, 4000, 8000, 15000, 25000]
@@ -21,7 +32,12 @@ interface StreamSettingsPickerProps {
 }
 
 /** Toolbar popover for picking the stream's resolution, frame rate, bitrate and encoder. */
-export function StreamSettingsPicker({ info, error, disabled, onChange }: StreamSettingsPickerProps) {
+export function StreamSettingsPicker({
+  info,
+  error,
+  disabled,
+  onChange,
+}: StreamSettingsPickerProps) {
   const label = "Stream settings"
 
   return (
@@ -47,7 +63,10 @@ export function StreamSettingsPicker({ info, error, disabled, onChange }: Stream
         ) : (
           !error && (
             <p role="status" className="flex items-center gap-2 text-muted-foreground">
-              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+              <LoaderCircle
+                className="size-4 animate-spin motion-reduce:animate-none"
+                aria-hidden
+              />
               Loading…
             </p>
           )
@@ -62,7 +81,13 @@ export function StreamSettingsPicker({ info, error, disabled, onChange }: Stream
   )
 }
 
-function SettingsFields({ info, onChange }: { info: StreamInfo; onChange: StreamSettingsPickerProps["onChange"] }) {
+function SettingsFields({
+  info,
+  onChange,
+}: {
+  info: StreamInfo
+  onChange: StreamSettingsPickerProps["onChange"]
+}) {
   const { settings, source, limits } = info
   const resolutions = resolutionOptions(source, limits.resolution).map((size) => ({
     value: resolutionKey(size),
@@ -150,7 +175,9 @@ function SettingField({
               {item.description ? (
                 <span className="flex flex-col">
                   {item.label}
-                  <span className="text-xs whitespace-normal text-muted-foreground">{item.description}</span>
+                  <span className="text-xs whitespace-normal text-muted-foreground">
+                    {item.description}
+                  </span>
                 </span>
               ) : (
                 item.label
@@ -165,7 +192,9 @@ function SettingField({
 
 /** The largest size the agent allows (usually the source) plus common smaller sizes with the same aspect ratio. */
 function resolutionOptions(source: Resolution, largest: Resolution): Resolution[] {
-  const scaled = SCALED_HEIGHTS.filter((height) => height < largest.height).map((height) => scaleToHeight(source, height))
+  const scaled = SCALED_HEIGHTS.filter((height) => height < largest.height).map((height) =>
+    scaleToHeight(source, height),
+  )
   return [largest, ...scaled]
 }
 

@@ -43,7 +43,13 @@ test("doesn't report a block for an already muted video", async () => {
 })
 
 test("recognizes agents on this computer", () => {
-  for (const address of ["localhost", "localhost:9000", "127.0.0.1", "http://127.0.0.2:9000", "[::1]"]) {
+  for (const address of [
+    "localhost",
+    "localhost:9000",
+    "127.0.0.1",
+    "http://127.0.0.2:9000",
+    "[::1]",
+  ]) {
     assert.equal(isLocalAgent(address), true, address)
   }
   for (const address of ["192.168.1.20", "pc.local:9000", "localhost.example.com"]) {

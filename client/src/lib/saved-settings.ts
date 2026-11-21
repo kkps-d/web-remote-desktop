@@ -55,10 +55,18 @@ export function toSavedStreamSettings({ settings, limits }: StreamInfo): SavedSt
  * Turns saved settings into concrete ones for this agent. Values above the agent's limits are
  * lowered to them, and an encoder this agent can't run is left out so it keeps its default.
  */
-export function resolveSavedSettings(saved: SavedStreamSettings, { source, encoders, limits }: StreamInfo): Partial<StreamSettings> {
+export function resolveSavedSettings(
+  saved: SavedStreamSettings,
+  { source, encoders, limits }: StreamInfo,
+): Partial<StreamSettings> {
   const largest = limits.resolution
-  const size = saved.height === null || saved.height >= largest.height ? largest : scaleToHeight(source, saved.height)
-  const encoderAvailable = encoders.some((encoder) => encoder.id === saved.encoder && encoder.available)
+  const size =
+    saved.height === null || saved.height >= largest.height
+      ? largest
+      : scaleToHeight(source, saved.height)
+  const encoderAvailable = encoders.some(
+    (encoder) => encoder.id === saved.encoder && encoder.available,
+  )
   return {
     ...size,
     framerate: Math.min(saved.framerate, limits.framerate),
@@ -79,7 +87,11 @@ export function parseInputSettings(raw: string | null): InputSettings {
     const saved = JSON.parse(raw ?? "null")
     const mouse = saved?.mouse ?? saved?.mode
     if ((mouse === "absolute" || mouse === "relative") && INPUT_RATES_HZ.includes(saved?.rateHz))
-      return { mouse, touch: TOUCH_MODES.includes(saved.touch) ? saved.touch : "touchscreen", rateHz: saved.rateHz }
+      return {
+        mouse,
+        touch: TOUCH_MODES.includes(saved.touch) ? saved.touch : "touchscreen",
+        rateHz: saved.rateHz,
+      }
   } catch {
     // A malformed saved value falls back to the defaults.
   }

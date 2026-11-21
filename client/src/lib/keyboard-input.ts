@@ -17,7 +17,11 @@ export const LEAVE_SHORTCUT = "Ctrl+Alt+Home"
  * is lost, since the matching key ups would never arrive. `onLeave` runs on the leave shortcut
  * and should move focus out of the stage.
  */
-export function attachKeyboardInput(stage: HTMLElement, sender: InputSender, onLeave: () => void): () => void {
+export function attachKeyboardInput(
+  stage: HTMLElement,
+  sender: InputSender,
+  onLeave: () => void,
+): () => void {
   function onKey(event: KeyboardEvent) {
     // Keys without a physical code (some IME and virtual keyboard events) can't be injected.
     if (!event.code) return

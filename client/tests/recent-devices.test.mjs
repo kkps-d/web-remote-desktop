@@ -42,7 +42,9 @@ test("removes a device by address", () => {
 
 test("parses saved devices, dropping malformed ones", () => {
   const good = { address: "pc:8080", lastConnectedAt: 1, thumbnail: "data:" }
-  assert.deepEqual(parseDevices(JSON.stringify([good, { address: 1 }, null, { address: "x" }])), [good])
+  assert.deepEqual(parseDevices(JSON.stringify([good, { address: 1 }, null, { address: "x" }])), [
+    good,
+  ])
   assert.deepEqual(parseDevices(null), [])
   assert.deepEqual(parseDevices("{}"), [])
   assert.deepEqual(parseDevices("not json"), [])

@@ -137,7 +137,10 @@ export function createTouchGestures(
       if (!moved && distance(current, start) <= TOUCH_SLOP_PX) return
       moved = true
       // Content follows the fingers: moving them up scrolls down.
-      sender.wheel(-(current.x - last.x) * WHEEL_UNITS_PER_PIXEL, -(current.y - last.y) * WHEEL_UNITS_PER_PIXEL)
+      sender.wheel(
+        -(current.x - last.x) * WHEEL_UNITS_PER_PIXEL,
+        -(current.y - last.y) * WHEEL_UNITS_PER_PIXEL,
+      )
       last = current
       return
     }

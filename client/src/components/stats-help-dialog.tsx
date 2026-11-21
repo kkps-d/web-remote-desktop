@@ -1,7 +1,13 @@
 import { useRef, type RefObject } from "react"
 
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { advancedStats, basicStats, type StatDefinition } from "@/lib/stat-definitions"
 
 interface StatsHelpDialogProps {
@@ -25,8 +31,8 @@ export function StatsHelpDialog({ open, onOpenChange, returnFocus }: StatsHelpDi
             Statistics help
           </DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted-foreground">
-            Updated about once a second. Rates and averages use changes since the previous sample.
-            {" "}— means unavailable or waiting for enough data.
+            Updated about once a second. Rates and averages use changes since the previous sample. —
+            means unavailable or waiting for enough data.
           </DialogDescription>
         </header>
         <div

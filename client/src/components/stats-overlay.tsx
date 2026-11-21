@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react"
 
 import type { AgentConnection, EncodingStats, Resolution } from "@/lib/agent-connection"
-import { advancedStats, basicStats, type StatDefinition, type StatName } from "@/lib/stat-definitions"
+import {
+  advancedStats,
+  basicStats,
+  type StatDefinition,
+  type StatName,
+} from "@/lib/stat-definitions"
 import { averageEncodeMs, readStreamStats, type StatsSample } from "@/lib/stream-stats"
 
 interface StatsOverlayProps {
@@ -39,7 +44,9 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
     const stop = pollEverySecond(async (signal) => {
       let current: EncodingStats | undefined
       try {
-        current = await connection.getEncodingStats(AbortSignal.any([signal, AbortSignal.timeout(3000)]))
+        current = await connection.getEncodingStats(
+          AbortSignal.any([signal, AbortSignal.timeout(3000)]),
+        )
       } catch {
         // Shown as unavailable.
       }
@@ -55,8 +62,12 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
 
   const values: Record<StatName, string> = {
     Stream: formatResolution(stats?.width, stats?.height),
-    Bitrate: stats?.bitrateKbps === undefined ? "—" : stats.bitrateKbps >= 1000
-      ? formatValue(stats.bitrateKbps / 1000, "Mbps") : formatValue(stats.bitrateKbps, "kbps", 0),
+    Bitrate:
+      stats?.bitrateKbps === undefined
+        ? "—"
+        : stats.bitrateKbps >= 1000
+          ? formatValue(stats.bitrateKbps / 1000, "Mbps")
+          : formatValue(stats.bitrateKbps, "kbps", 0),
     Framerate: formatValue(stats?.fps, "fps", 0),
     "Net. RTT": formatValue(stats?.rttMs, "ms"),
     Source: formatResolution(source?.width, source?.height),
@@ -66,8 +77,10 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
     Jitter: formatValue(stats?.jitterMs, "ms"),
     "Jitter buffer delay": formatValue(stats?.bufferMs, "ms"),
     "Dropped frames": formatValue(stats?.droppedFrames, "frames", 0),
-    Freezes: stats?.freezeCount === undefined ? "—"
-      : `${formatValue(stats.freezeCount, "freezes", 0)} / ${formatValue(stats.freezeSeconds, "s")}`,
+    Freezes:
+      stats?.freezeCount === undefined
+        ? "—"
+        : `${formatValue(stats.freezeCount, "freezes", 0)} / ${formatValue(stats.freezeSeconds, "s")}`,
     Codec: stats?.codec ?? "—",
     // Chromium only exposes the decoder name while the page captures a camera or mic.
     Decoder: stats?.decoder ?? (stats?.sample.video ? "Hidden by browser" : "—"),
@@ -121,7 +134,9 @@ function pollEverySecond(task: (signal: AbortSignal) => Promise<void>) {
 }
 
 function formatValue(number: number | undefined, unit: string, decimals = 1) {
-  return number === undefined || !Number.isFinite(number) ? "—" : `${number.toFixed(decimals)} ${unit}`
+  return number === undefined || !Number.isFinite(number)
+    ? "—"
+    : `${number.toFixed(decimals)} ${unit}`
 }
 
 function formatResolution(width?: number, height?: number) {

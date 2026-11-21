@@ -81,7 +81,10 @@ export function parseAgentAddress(address: string): URL {
  * (non-trickle ICE), answered with the agent's SDP and a session URL for ending it.
  * Aborting `signal` cancels the attempt and ends any session it already started.
  */
-export async function connectToAgent(address: string, signal: AbortSignal): Promise<AgentConnection> {
+export async function connectToAgent(
+  address: string,
+  signal: AbortSignal,
+): Promise<AgentConnection> {
   const baseUrl = parseAgentAddress(address)
   const peerConnection = new RTCPeerConnection()
   const stream = new MediaStream()
@@ -126,7 +129,9 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
       input,
       getStreamInfo: () => queuedSessionRequest({ method: "GET" }),
       getEncodingStats: (signal) =>
-        sessionRequest<EncodingStats>(sessionUrl ? new URL(`${sessionUrl.href}/stats`) : null, { signal }),
+        sessionRequest<EncodingStats>(sessionUrl ? new URL(`${sessionUrl.href}/stats`) : null, {
+          signal,
+        }),
       updateStreamSettings: (update) =>
         queuedSessionRequest({
           method: "PATCH",
@@ -146,7 +151,10 @@ export async function connectToAgent(address: string, signal: AbortSignal): Prom
   }
 }
 
-async function sessionRequest<T = StreamInfo>(sessionUrl: URL | null, init: RequestInit): Promise<T> {
+async function sessionRequest<T = StreamInfo>(
+  sessionUrl: URL | null,
+  init: RequestInit,
+): Promise<T> {
   if (!sessionUrl) throw new Error("The agent didn't return a session URL.")
   let response: Response
   try {
@@ -155,7 +163,8 @@ async function sessionRequest<T = StreamInfo>(sessionUrl: URL | null, init: Requ
     throw new Error("Couldn't reach the agent.")
   }
   if (response.status === 404) throw new Error("The stream session has ended.")
-  if (!response.ok) throw new Error((await response.text()) || `The agent responded with ${response.status}.`)
+  if (!response.ok)
+    throw new Error((await response.text()) || `The agent responded with ${response.status}.`)
   return response.json()
 }
 
@@ -172,7 +181,9 @@ async function postOffer(baseUrl: URL, sdp: string): Promise<Response> {
       body: sdp,
     })
   } catch {
-    throw new Error(`Couldn't reach the agent at ${baseUrl.host}. Check the address and that the agent is running.`)
+    throw new Error(
+      `Couldn't reach the agent at ${baseUrl.host}. Check the address and that the agent is running.`,
+    )
   }
 }
 

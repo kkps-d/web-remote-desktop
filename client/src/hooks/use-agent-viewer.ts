@@ -35,7 +35,11 @@ export function useAgentViewer() {
         connection = await connectToAgent(address, attempt.signal)
       } catch (error) {
         if (attempt.signal.aborted) return
-        setState({ status: "failed", address, error: error instanceof Error ? error.message : String(error) })
+        setState({
+          status: "failed",
+          address,
+          error: error instanceof Error ? error.message : String(error),
+        })
         return
       }
 

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { forgetDevice, readRecentDevices, rememberDevice } from "../src/lib/recent-devices.ts"
-import { readInputSettings, readStreamSettings, saveInputSettings, saveStreamSettings } from "../src/lib/saved-settings.ts"
+import {
+  readInputSettings,
+  readStreamSettings,
+  saveInputSettings,
+  saveStreamSettings,
+} from "../src/lib/saved-settings.ts"
 import { readStorage, writeStorage } from "../src/lib/storage.ts"
 
 function useStorage(t, storage) {
@@ -22,7 +27,10 @@ function blockStorage(t) {
 
 test("reads and writes storage", (t) => {
   const values = new Map()
-  useStorage(t, { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) })
+  useStorage(t, {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  })
 
   writeStorage("key", "value")
   assert.equal(readStorage("key"), "value")

@@ -18,7 +18,15 @@ interface RemoteInputOptions extends InputSettings {
  * Forwards mouse input on the video and keyboard input on the stage to the connection's input
  * channel. Returns the sender, for toolbar shortcuts.
  */
-export function useRemoteInput({ connection, stageRef, videoRef, onLeaveKeyboard, mouse, touch, rateHz }: RemoteInputOptions) {
+export function useRemoteInput({
+  connection,
+  stageRef,
+  videoRef,
+  onLeaveKeyboard,
+  mouse,
+  touch,
+  rateHz,
+}: RemoteInputOptions) {
   const sender = useMemo(() => connection && createInputSender(connection.input), [connection])
 
   useEffect(() => {

@@ -6,7 +6,12 @@ export default function App() {
   const { state, connect, disconnect } = useAgentViewer()
 
   if (state.status === "idle" || state.status === "failed") {
-    return <ConnectScreen onConnect={connect} error={state.status === "failed" ? state.error : undefined} />
+    return (
+      <ConnectScreen
+        onConnect={connect}
+        error={state.status === "failed" ? state.error : undefined}
+      />
+    )
   }
 
   return (

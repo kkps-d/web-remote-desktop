@@ -24,7 +24,11 @@ interface ViewerScreenProps {
   onDisconnect: () => void
 }
 
-const statusLabels = { connecting: "Connecting…", connected: "Connected", reconnecting: "Reconnecting…" }
+const statusLabels = {
+  connecting: "Connecting…",
+  connected: "Connected",
+  reconnecting: "Reconnecting…",
+}
 
 const STATS_VISIBILITY_KEY = "statsVisibility"
 // The first capture waits a moment so the stream has settled past its first frames.
@@ -116,18 +120,30 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             basic={statsVisibility.basic}
             advanced={statsVisibility.advanced}
             onBasicChange={(basic) => setStatsVisibility((current) => ({ ...current, basic }))}
-            onAdvancedChange={(advanced) => setStatsVisibility((current) => ({ ...current, advanced }))}
+            onAdvancedChange={(advanced) =>
+              setStatsVisibility((current) => ({ ...current, advanced }))
+            }
           />
           {audioUnavailableReason ? (
-            <ToolbarButton label={`No audio: ${audioUnavailableReason}`} disabled onClick={audio.toggleMuted}>
+            <ToolbarButton
+              label={`No audio: ${audioUnavailableReason}`}
+              disabled
+              onClick={audio.toggleMuted}
+            >
               <VolumeX />
             </ToolbarButton>
           ) : (
-            <ToolbarButton label={audio.muted ? "Unmute audio" : "Mute audio"} onClick={audio.toggleMuted}>
+            <ToolbarButton
+              label={audio.muted ? "Unmute audio" : "Mute audio"}
+              onClick={audio.toggleMuted}
+            >
               {audio.muted ? <VolumeX /> : <Volume2 />}
             </ToolbarButton>
           )}
-          <ToolbarButton label={isFullscreen ? "Exit fullscreen" : "Fullscreen"} onClick={toggleFullscreen}>
+          <ToolbarButton
+            label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            onClick={toggleFullscreen}
+          >
             {isFullscreen ? <Minimize /> : <Maximize />}
           </ToolbarButton>
           {/* Icon-only on phones so the toolbar fits. */}
@@ -161,7 +177,9 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
             className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 text-sm text-white"
           >
             <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-            {status === "reconnecting" ? "Connection lost. Reconnecting…" : `Connecting to ${address}…`}
+            {status === "reconnecting"
+              ? "Connection lost. Reconnecting…"
+              : `Connecting to ${address}…`}
           </div>
         )}
         {(statsVisibility.basic || statsVisibility.advanced) && connected && connection && (

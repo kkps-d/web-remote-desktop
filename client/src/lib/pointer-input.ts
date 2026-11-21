@@ -54,8 +54,14 @@ export function toVideoFraction(
 }
 
 /** Converts a wheel event's deltas to Windows wheel units, keeping the DOM's directions (the agent flips dy). */
-export function toWheelUnits({ deltaX, deltaY, deltaMode }: Pick<WheelEvent, "deltaX" | "deltaY" | "deltaMode">) {
-  const units = [WHEEL_UNITS_PER_PIXEL, WHEEL_UNITS_PER_LINE, WHEEL_UNITS_PER_PAGE][deltaMode] ?? WHEEL_UNITS_PER_PIXEL
+export function toWheelUnits({
+  deltaX,
+  deltaY,
+  deltaMode,
+}: Pick<WheelEvent, "deltaX" | "deltaY" | "deltaMode">) {
+  const units =
+    [WHEEL_UNITS_PER_PIXEL, WHEEL_UNITS_PER_LINE, WHEEL_UNITS_PER_PAGE][deltaMode] ??
+    WHEEL_UNITS_PER_PIXEL
   return { dx: deltaX * units, dy: deltaY * units }
 }
 
@@ -73,7 +79,11 @@ export function attachPointerInput(
     touchMode === "touchscreen"
       ? createNativeTouch(sender, { toFraction })
       : createTouchGestures(sender, touchMode, { toFraction })
-  const touchPoint = (event: PointerEvent) => ({ id: event.pointerId, clientX: event.clientX, clientY: event.clientY })
+  const touchPoint = (event: PointerEvent) => ({
+    id: event.pointerId,
+    clientX: event.clientX,
+    clientY: event.clientY,
+  })
 
   // Relative input only flows while the pointer is locked to the video.
   function isActive(event: PointerEvent) {
@@ -82,7 +92,9 @@ export function attachPointerInput(
 
   function sendPosition(event: PointerEvent) {
     // While a button is held, a drag past the content area pins to its edge.
-    const position = toVideoFraction(event, video.getBoundingClientRect(), video, { clamp: event.buttons !== 0 })
+    const position = toVideoFraction(event, video.getBoundingClientRect(), video, {
+      clamp: event.buttons !== 0,
+    })
     if (position) sender.move(position.x, position.y)
   }
 
@@ -93,7 +105,8 @@ export function attachPointerInput(
     else sendPosition(event)
 
     // Pressing or releasing a button while another is held fires pointermove, not pointerdown/up.
-    if (isMouseButton(event.button)) sender.button(event.button, (event.buttons & BUTTON_BITS[event.button]) !== 0)
+    if (isMouseButton(event.button))
+      sender.button(event.button, (event.buttons & BUTTON_BITS[event.button]) !== 0)
   }
 
   function onPointerDown(event: PointerEvent) {

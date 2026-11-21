@@ -20,7 +20,12 @@ const info = {
 }
 
 test("saves the resolution as a height, or null at native resolution", () => {
-  assert.deepEqual(toSavedStreamSettings(info), { height: 1080, framerate: 60, bitrateKbps: 8000, encoder: "nvenc" })
+  assert.deepEqual(toSavedStreamSettings(info), {
+    height: 1080,
+    framerate: 60,
+    bitrateKbps: 8000,
+    encoder: "nvenc",
+  })
   const native = { ...info, settings: { ...info.settings, width: 2560, height: 1440 } }
   assert.equal(toSavedStreamSettings(native).height, null)
 })
@@ -28,7 +33,11 @@ test("saves the resolution as a height, or null at native resolution", () => {
 test("scales a saved height to this agent's source", () => {
   const saved = { height: 720, framerate: 30, bitrateKbps: 4000, encoder: "nvenc" }
   assert.deepEqual(resolveSavedSettings(saved, info), {
-    width: 1280, height: 720, framerate: 30, bitrateKbps: 4000, encoder: "nvenc",
+    width: 1280,
+    height: 720,
+    framerate: 30,
+    bitrateKbps: 4000,
+    encoder: "nvenc",
   })
 })
 
@@ -45,9 +54,15 @@ test("lowers saved settings to the agent's limits", () => {
     limits: { resolution: { width: 1920, height: 1080 }, framerate: 60, bitrateKbps: 25000 },
   }
   for (const height of [null, 1440]) {
-    assert.deepEqual(resolveSavedSettings({ height, framerate: 120, bitrateKbps: 50000 }, limited), {
-      width: 1920, height: 1080, framerate: 60, bitrateKbps: 25000,
-    })
+    assert.deepEqual(
+      resolveSavedSettings({ height, framerate: 120, bitrateKbps: 50000 }, limited),
+      {
+        width: 1920,
+        height: 1080,
+        framerate: 60,
+        bitrateKbps: 25000,
+      },
+    )
   }
   const largest = { ...limited, settings: { ...info.settings, width: 1920, height: 1080 } }
   assert.equal(toSavedStreamSettings(largest).height, null)
@@ -55,7 +70,10 @@ test("lowers saved settings to the agent's limits", () => {
 
 test("leaves out an encoder this agent can't run", () => {
   for (const encoder of ["amf", "x264", undefined]) {
-    const resolved = resolveSavedSettings({ height: null, framerate: 30, bitrateKbps: 4000, encoder }, info)
+    const resolved = resolveSavedSettings(
+      { height: null, framerate: 30, bitrateKbps: 4000, encoder },
+      info,
+    )
     assert.equal("encoder" in resolved, false, String(encoder))
   }
 })
@@ -90,7 +108,11 @@ test("parses saved input settings", () => {
 })
 
 test("keeps the mouse mode and rate of settings saved before the touch option", () => {
-  assert.deepEqual(parseInputSettings('{"mode":"relative","rateHz":500}'), { mouse: "relative", touch: "touchscreen", rateHz: 500 })
+  assert.deepEqual(parseInputSettings('{"mode":"relative","rateHz":500}'), {
+    mouse: "relative",
+    touch: "touchscreen",
+    rateHz: 500,
+  })
 })
 
 test("falls back to touchscreen for an unknown touch mode", () => {
@@ -102,12 +124,23 @@ test("falls back to touchscreen for an unknown touch mode", () => {
 })
 
 test("falls back to an absolute mouse, touchscreen at 125 Hz for missing or unsupported input settings", () => {
-  for (const raw of [null, "not json", '{"mouse":"touch","rateHz":500}', '{"mouse":"relative","rateHz":60}', '{"mouse":"relative"}']) {
-    assert.deepEqual(parseInputSettings(raw), { mouse: "absolute", touch: "touchscreen", rateHz: 125 }, String(raw))
+  for (const raw of [
+    null,
+    "not json",
+    '{"mouse":"touch","rateHz":500}',
+    '{"mouse":"relative","rateHz":60}',
+    '{"mouse":"relative"}',
+  ]) {
+    assert.deepEqual(
+      parseInputSettings(raw),
+      { mouse: "absolute", touch: "touchscreen", rateHz: 125 },
+      String(raw),
+    )
   }
 })
 
 test("audio is muted only when the user saved it muted", () => {
   assert.equal(parseAudioMuted("true"), true)
-  for (const raw of [null, "false", "1", "not json"]) assert.equal(parseAudioMuted(raw), false, String(raw))
+  for (const raw of [null, "false", "1", "not json"])
+    assert.equal(parseAudioMuted(raw), false, String(raw))
 })

@@ -74,7 +74,12 @@ export function ConnectScreen({ onConnect, error }: ConnectScreenProps) {
                 aria-invalid={addressError ? true : undefined}
                 aria-describedby="agent-address-hint"
               />
-              <p id="agent-address-hint" className={addressError ? "text-sm text-destructive" : "text-sm text-muted-foreground"}>
+              <p
+                id="agent-address-hint"
+                className={
+                  addressError ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+                }
+              >
                 {addressError ?? "Port defaults to 8080."}
               </p>
             </div>
@@ -86,7 +91,11 @@ export function ConnectScreen({ onConnect, error }: ConnectScreenProps) {
       </Card>
 
       {devices.length > 0 && (
-        <RecentDevices devices={devices} onConnect={connectTo} onForget={(device) => setDevices(forgetDevice(device))} />
+        <RecentDevices
+          devices={devices}
+          onConnect={connectTo}
+          onForget={(device) => setDevices(forgetDevice(device))}
+        />
       )}
     </main>
   )
@@ -105,8 +114,14 @@ function RecentDevices({
   const [now] = useState(Date.now)
 
   return (
-    <section aria-labelledby="recent-devices-heading" className="flex w-full max-w-[52rem] flex-col gap-3">
-      <h2 id="recent-devices-heading" className="text-center text-sm font-medium text-muted-foreground">
+    <section
+      aria-labelledby="recent-devices-heading"
+      className="flex w-full max-w-[52rem] flex-col gap-3"
+    >
+      <h2
+        id="recent-devices-heading"
+        className="text-center text-sm font-medium text-muted-foreground"
+      >
         Recent devices
       </h2>
       {/* Centered rows so a few devices stay balanced under the form. */}

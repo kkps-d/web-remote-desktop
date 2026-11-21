@@ -23,7 +23,15 @@ interface InputMenuProps extends InputSettings {
 }
 
 /** Toolbar menu for the mouse and touch modes and how often pointer input is sent. */
-export function InputMenu({ mouse, touch, rateHz, disabled, onMouseChange, onTouchChange, onRateChange }: InputMenuProps) {
+export function InputMenu({
+  mouse,
+  touch,
+  rateHz,
+  disabled,
+  onMouseChange,
+  onTouchChange,
+  onRateChange,
+}: InputMenuProps) {
   return (
     <DropdownMenu>
       <Tooltip>

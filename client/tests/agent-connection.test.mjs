@@ -86,7 +86,12 @@ test("creates the input channel before the offer so the SDP includes it", async 
   stubFetch(t, agent)
   const connection = await connectToAgent("pc", new AbortController().signal)
 
-  assert.deepEqual(FakePeerConnection.last.steps, ["transceiver video", "transceiver audio", "channel input", "offer"])
+  assert.deepEqual(FakePeerConnection.last.steps, [
+    "transceiver video",
+    "transceiver audio",
+    "channel input",
+    "offer",
+  ])
   assert.equal(connection.input.label, "input")
 })
 
@@ -132,7 +137,10 @@ test("cancelling after the agent answered ends the session it started", async (t
 test("explains why the agent couldn't be reached or refused the offer", async (t) => {
   const responses = [
     [() => Promise.reject(new TypeError("fetch failed")), /Couldn't reach the agent at pc:8080/],
-    [() => new Response("The offer has no constrained-baseline H.264 codec.", { status: 400 }), /no constrained-baseline/],
+    [
+      () => new Response("The offer has no constrained-baseline H.264 codec.", { status: 400 }),
+      /no constrained-baseline/,
+    ],
     [() => new Response("", { status: 500 }), /The agent responded with 500\./],
   ]
   for (const [respond, message] of responses) {
@@ -151,7 +159,10 @@ test("explains failed session requests", async (t) => {
   for (const [response, message] of [
     [() => new Response("", { status: 404 }), "The stream session has ended."],
     [() => Promise.reject(new TypeError("fetch failed")), "Couldn't reach the agent."],
-    [() => new Response("Frame rate must be 1–120 fps.", { status: 400 }), "Frame rate must be 1–120 fps."],
+    [
+      () => new Response("Frame rate must be 1–120 fps.", { status: 400 }),
+      "Frame rate must be 1–120 fps.",
+    ],
   ]) {
     respond = response
     await assert.rejects(connection.updateStreamSettings({ framerate: 0 }), { message })
@@ -162,7 +173,9 @@ test("fails session requests when the agent gave no session URL", async (t) => {
   stubFetch(t, () => new Response("answer-sdp", { status: 201 }))
   const connection = await connectToAgent("pc", new AbortController().signal)
 
-  await assert.rejects(connection.getStreamInfo(), { message: "The agent didn't return a session URL." })
+  await assert.rejects(connection.getStreamInfo(), {
+    message: "The agent didn't return a session URL.",
+  })
 })
 
 test("sends settings requests one at a time, in order, even after a failure", async (t) => {
@@ -171,7 +184,8 @@ test("sends settings requests one at a time, in order, even after a failure", as
     request.url.endsWith("/offer") ? answer() : new Promise((resolve) => pending.push(resolve)),
   )
   const connection = await connectToAgent("pc", new AbortController().signal)
-  const patches = () => requests.filter((request) => request.method === "PATCH").map((request) => request.init.body)
+  const patches = () =>
+    requests.filter((request) => request.method === "PATCH").map((request) => request.init.body)
 
   const first = connection.updateStreamSettings({ framerate: 60 })
   const second = connection.updateStreamSettings({ framerate: 30 })
