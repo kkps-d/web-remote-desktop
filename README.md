@@ -1,45 +1,76 @@
 # Web Remote Desktop
 
-A simple remote desktop app that consists of a web client and a agent.
+A simple remote desktop app: a web client that connects to an agent running on the computer you want to control.
 
-The web client connects to the agent installed on a computer to remote desktop.
+- Streams the desktop with audio
+- Takes mouse and keyboard input
+- LAN/VPN only, plain HTTP
 
-See [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) for the design. LAN/VPN only, plain HTTP. Streams the desktop with audio and takes mouse and keyboard input (v1.1).
+## Docs
 
-See [Known issues](docs/KNOWN_ISSUES.md) for current limitations and workarounds.
-
-See [Linux development](docs/LINUX_DEV.md) for the Linux VM setup and how the Linux agent works.
+- [Requirements](docs/REQUIREMENTS.md): the design (v1.1)
+- [Known issues](docs/KNOWN_ISSUES.md): current limitations and workarounds
+- [Linux development](docs/LINUX_DEV.md): the Linux VM setup and how the Linux agent works
 
 ## Running
 
-**Agent**: the Rust agent in `agent-rs/` runs on Windows and Linux. It listens on port 8080 on all interfaces.
+### Agent
 
-_Windows_: needs Windows 10 1809 or later, [Rust](https://rustup.rs/) with the MSVC toolchain, and [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28.4+ (MSVC build) with its development files (pick "Runtime and development headers" in the installer). Audio needs Windows 10 build 20348 or later (e.g. Windows 11); older builds stream video only. Allow the agent through Windows Firewall on private networks.
+The Rust agent in `agent-rs/` runs on Windows and Linux. It listens on port 8080 on all interfaces.
 
-The build finds GStreamer through pkg-config, and Windows loads GStreamer's DLLs before the agent starts, so set these once for your user (paths of the per-user installer), then open a new terminal:
+#### Windows
 
-```powershell
-$gst = "$env:LOCALAPPDATA\Programs\gstreamer\1.0\msvc_x86_64"
-[Environment]::SetEnvironmentVariable('PKG_CONFIG', "$gst\bin\pkg-config.exe", 'User')
-[Environment]::SetEnvironmentVariable('PKG_CONFIG_PATH', "$gst\lib\pkgconfig", 'User')
-[Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$gst\bin", 'User')
-```
+Requirements:
+
+- Windows 10 1809 or later (audio needs build 20348 or later, e.g. Windows 11; older builds stream video only)
+- [Rust](https://rustup.rs/) with the MSVC toolchain
+- [GStreamer](https://gstreamer.freedesktop.org/download/) 1.28.4+ (MSVC build). In the installer, pick "Runtime and development headers".
+
+Setup:
+
+1. Set these environment variables once for your user, then open a new terminal. The build finds GStreamer through pkg-config, and Windows has to load GStreamer's DLLs before the agent starts. The paths are for the per-user installer.
+
+   ```powershell
+   $gst = "$env:LOCALAPPDATA\Programs\gstreamer\1.0\msvc_x86_64"
+   [Environment]::SetEnvironmentVariable('PKG_CONFIG', "$gst\bin\pkg-config.exe", 'User')
+   [Environment]::SetEnvironmentVariable('PKG_CONFIG_PATH', "$gst\lib\pkgconfig", 'User')
+   [Environment]::SetEnvironmentVariable('Path', [Environment]::GetEnvironmentVariable('Path', 'User') + ";$gst\bin", 'User')
+   ```
+
+2. Allow the agent through Windows Firewall on private networks.
+3. Run the agent:
+
+   ```powershell
+   cargo run --release --manifest-path agent-rs/Cargo.toml
+   ```
+
+#### Linux
+
+Requirements:
+
+- A GNOME desktop on Wayland with PipeWire (tested on Ubuntu 26.04)
+- The [packages](docs/LINUX_DEV.md#packages) and Rust
+- [Access to `/dev/uinput`](docs/LINUX_DEV.md#step-2-input-done) for your user, for input
+
+Run the agent from a terminal in the logged-in desktop session, not over SSH:
 
 ```bash
 cargo run --release --manifest-path agent-rs/Cargo.toml
 ```
 
-Change the port with `-- --port 9000`. Set `RUST_LOG=debug` for more detail. For connection modes and stream defaults and limits, copy [`agent.example.toml`](agent-rs/agent.example.toml) to `agent.toml` next to the executable, or pass `-- --config <path>`.
+The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. After you allow it, later viewers and restarts skip the dialog.
 
-_Linux_: needs a GNOME desktop on Wayland with PipeWire (tested on Ubuntu 26.04). Install the [packages](docs/LINUX_DEV.md#packages) and Rust, and give your user [access to `/dev/uinput`](docs/LINUX_DEV.md#step-2-input-done) for input. Run the agent from a terminal in the logged-in desktop session, not over SSH:
+#### Options
 
-```bash
-cargo run --release --manifest-path agent-rs/Cargo.toml
-```
+| Option | How |
+| --- | --- |
+| Port | `-- --port 9000` |
+| Verbose logs | `RUST_LOG=debug` |
+| Connection modes, stream defaults and limits | Copy [`agent.example.toml`](agent-rs/agent.example.toml) to `agent.toml` next to the executable, or pass `-- --config <path>` |
 
-The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. Once it's allowed, later viewers and restarts skip it.
+### Web client
 
-**Web client**: needs Node.js.
+Requirements: Node.js.
 
 ```bash
 cd client
@@ -47,18 +78,21 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173 and enter the agent's address (e.g. `192.168.1.20`). `npm run build` produces a static site in `client/dist`; serve it over plain HTTP, since HTTPS pages can't reach the HTTP agent.
+Open http://localhost:5173 and enter the agent's address (e.g. `192.168.1.20`).
+
+`npm run build` produces a static site in `client/dist`.
+
+> [!NOTE]
+> Serve the client over plain HTTP. HTTPS pages can't reach the HTTP agent.
 
 ## Testing
 
+> [!NOTE]
+> Stop any running agent first. Its build output is locked while it runs.
+
 ```bash
 cargo test --manifest-path agent-rs/Cargo.toml
-```
-
-Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` in `agent-rs/` too.
-
-```bash
+cargo fmt --check --manifest-path agent-rs/Cargo.toml
+cargo clippy --manifest-path agent-rs/Cargo.toml --all-targets -- -D warnings
 npm --prefix client test
 ```
-
-Stop a running agent first; its build output is locked while it runs.
