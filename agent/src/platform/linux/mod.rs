@@ -58,13 +58,14 @@ pub fn show_cursor(_capture: &gst::Element, _visible: bool) {
     LOGGED.call_once(|| debug!("Hiding the stream cursor isn't supported on Linux"));
 }
 
-// videoscale scales to the output size and videorate caps the frame rate. Changing these caps
-// while playing renegotiates the pipeline as on Windows.
-pub fn output_caps(size: Option<Resolution>, framerate: i32) -> String {
+// videoscale scales to the output size. Changing these caps while playing renegotiates the
+// pipeline as on Windows. The frame rate is set in the capture segment instead; see
+// `Capture::description`.
+pub fn output_caps(size: Option<Resolution>, _framerate: i32) -> String {
     let size = size.map_or(String::new(), |size| {
-        format!("width={},height={},", size.width, size.height)
+        format!(",width={},height={}", size.width, size.height)
     });
-    format!("video/x-raw,format=NV12,{size}framerate={framerate}/1")
+    format!("video/x-raw,format=NV12{size}")
 }
 
 // Each describes the encoder segment between the capture's NV12 output in system memory and

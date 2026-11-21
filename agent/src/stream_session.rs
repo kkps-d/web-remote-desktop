@@ -100,9 +100,9 @@ pub struct StreamSession {
     input: Arc<InputChannel>,
     // Why the stream has no audio, or None if it has.
     audio_unavailable: Option<String>,
-    // Held for the stream; on Linux it is the portal session. Drop stops the pipeline before
-    // the fields drop, so the capture outlives it.
-    _capture: platform::Capture,
+    // Held for the stream, and sets its frame rate; on Linux it is the portal session. Drop stops
+    // the pipeline before the fields drop, so the capture outlives it.
+    capture: platform::Capture,
 }
 
 impl StreamSession {
@@ -132,7 +132,7 @@ impl StreamSession {
         let size = initial_size(encoders.limits(encoder), config.max_size(), capture.size());
         let description = pipeline_description(
             codec,
-            &capture.description(),
+            &capture.description(config.default_fps),
             opus_payload_type,
             size,
             config.default_fps,
@@ -164,7 +164,7 @@ impl StreamSession {
 
         let session = Arc::new(Self {
             id,
-            _capture: capture,
+            capture,
             input,
             audio_unavailable,
             capture_src,
@@ -267,6 +267,9 @@ impl StreamSession {
         // A new encoder starts with the new bitrate. The others pick it up on their next frame.
         if plan.switch_encoder_first {
             self.swap_encoder(encoders, &next.encoder, next.bitrate_kbps)?;
+        }
+        if next.framerate != current.framerate {
+            self.capture.set_framerate(&self.pipeline, next.framerate)?;
         }
         if next.size() != current.size() || next.framerate != current.framerate {
             let caps = platform::output_caps(Some(next.size()), next.framerate);

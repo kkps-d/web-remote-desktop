@@ -29,9 +29,15 @@ impl Capture {
         Ok(Self)
     }
 
-    /// The capture segment of the pipeline; its source is named "capture".
-    pub fn description(&self) -> String {
+    /// The capture segment of the pipeline; its source is named "capture". The frame rate is in
+    /// the output caps.
+    pub fn description(&self, _framerate: i32) -> String {
         "d3d11screencapturesrc name=capture show-cursor=true ! d3d11convert".into()
+    }
+
+    /// The output caps carry the frame rate on Windows, so there's nothing else to change.
+    pub fn set_framerate(&self, _pipeline: &gst::Pipeline, _framerate: i32) -> Result<(), String> {
+        Ok(())
     }
 
     /// Takes the element named "capture" once the pipeline is built. Nothing to do on Windows.

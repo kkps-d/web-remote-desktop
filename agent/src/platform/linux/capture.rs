@@ -4,6 +4,7 @@
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::pin::pin;
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
@@ -71,16 +72,29 @@ impl Capture {
     }
 
     /// The capture segment of the pipeline; its source is named "capture". GNOME's stream has a
-    /// variable frame rate, so videorate caps it at the output caps' rate. The portal's format
-    /// never changes; see `attach`. When the user stops sharing, pipewiresrc posts an error,
-    /// which ends the session.
-    pub fn description(&self) -> String {
+    /// variable frame rate, so videorate caps it at `framerate`, set by the capsfilter right
+    /// after it rather than by the output caps: videoconvert and videoscale can't change the
+    /// frame rate, so a frame already past videorate when the rate changes would fail to
+    /// negotiate there, and pipewiresrc can't renegotiate to recover; see `attach`. The portal's
+    /// format never changes. When the user stops sharing, pipewiresrc posts an error, which
+    /// ends the session.
+    pub fn description(&self, framerate: i32) -> String {
         format!(
             "pipewiresrc fd={fd} path={node} name=capture keepalive-time={KEEPALIVE_MS} \
-             on-disconnect=error ! videorate drop-only=true ! videoconvert ! videoscale",
+             on-disconnect=error ! videorate drop-only=true ! \
+             capsfilter name=rate caps={caps} ! videoconvert ! videoscale",
             fd = self.monitor.remote.as_raw_fd(),
             node = self.monitor.node_id,
+            caps = rate_caps(framerate),
         )
+    }
+
+    /// Changes the frame rate while streaming; videorate picks it up with the next frame.
+    pub fn set_framerate(&self, pipeline: &gst::Pipeline, framerate: i32) -> Result<(), String> {
+        let rate = pipeline.by_name("rate").ok_or("Element rate not found.")?;
+        let caps = gst::Caps::from_str(&rate_caps(framerate)).map_err(|error| error.to_string())?;
+        rate.set_property("caps", &caps);
+        Ok(())
     }
 
     /// Takes the element named "capture" once the pipeline is built. A settings change sends a
@@ -114,6 +128,10 @@ impl Drop for Capture {
             debug!("Could not close the screen cast session: {error}");
         }
     }
+}
+
+fn rate_caps(framerate: i32) -> String {
+    format!("video/x-raw,framerate={framerate}/1")
 }
 
 /// Completes after `duration` on any executor. A thread does the waiting, since zbus's
