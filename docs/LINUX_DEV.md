@@ -73,7 +73,7 @@ sudo usermod -aG input "$USER"   # then reboot
 Run the agent from a terminal in the desktop session, not over SSH:
 
 ```bash
-cargo run --release --manifest-path agent-rs/Cargo.toml
+cargo run --release --manifest-path agent/Cargo.toml
 ```
 
 GNOME's share dialog appears on the desktop for the first viewer. Run the client on Windows as usual and connect to the VM's IP.

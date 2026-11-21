@@ -20,7 +20,7 @@ A simple remote desktop app: a web client that connects to an agent running on t
 
 ### Agent
 
-The Rust agent in `agent-rs/` runs on Windows and Linux. It listens on port 8080 on all interfaces.
+The Rust agent in `agent/` runs on Windows and Linux. It listens on port 8080 on all interfaces.
 
 #### Windows
 
@@ -45,7 +45,7 @@ Setup:
 3. Run the agent:
 
    ```powershell
-   cargo run --release --manifest-path agent-rs/Cargo.toml
+   cargo run --release --manifest-path agent/Cargo.toml
    ```
 
 #### Linux
@@ -59,7 +59,7 @@ Requirements:
 Run the agent from a terminal in the logged-in desktop session, not over SSH:
 
 ```bash
-cargo run --release --manifest-path agent-rs/Cargo.toml
+cargo run --release --manifest-path agent/Cargo.toml
 ```
 
 The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. After you allow it, later viewers and restarts skip the dialog.
@@ -70,7 +70,7 @@ The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. A
 | --- | --- |
 | Port | `-- --port 9000` |
 | Verbose logs | `RUST_LOG=debug` |
-| Connection modes, stream defaults and limits | Copy [`agent.example.toml`](agent-rs/agent.example.toml) to `agent.toml` next to the executable, or pass `-- --config <path>` |
+| Connection modes, stream defaults and limits | Copy [`agent.example.toml`](agent/agent.example.toml) to `agent.toml` next to the executable, or pass `-- --config <path>` |
 
 ### Web client
 
@@ -95,8 +95,8 @@ Open http://localhost:5173 and enter the agent's address (e.g. `192.168.1.20`).
 > Stop any running agent first. Its build output is locked while it runs.
 
 ```bash
-cargo test --manifest-path agent-rs/Cargo.toml
-cargo fmt --check --manifest-path agent-rs/Cargo.toml
-cargo clippy --manifest-path agent-rs/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path agent/Cargo.toml
+cargo fmt --check --manifest-path agent/Cargo.toml
+cargo clippy --manifest-path agent/Cargo.toml --all-targets -- -D warnings
 npm --prefix client test
 ```

@@ -8,9 +8,9 @@
       "port": 5173
     },
     {
-      "name": "agent-rs",
+      "name": "agent",
       "runtimeExecutable": "cargo",
-      "runtimeArgs": ["run", "--manifest-path", "agent-rs/Cargo.toml"],
+      "runtimeArgs": ["run", "--manifest-path", "agent/Cargo.toml"],
       "port": 8080
     }
   ]

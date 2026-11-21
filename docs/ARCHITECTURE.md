@@ -13,7 +13,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 ## Overview
 
 - `client/`: a React web client that views and controls a remote computer over WebRTC.
-- `agent-rs/`: a Rust agent on the remote computer. GStreamer does capture, encoding and WebRTC; Rust wires it together and serves signaling.
+- `agent/`: a Rust agent on the remote computer. GStreamer does capture, encoding and WebRTC; Rust wires it together and serves signaling.
 - LAN/VPN only: the client reaches the agent directly. No STUN/TURN, plain HTTP.
 
 ## Web client
@@ -70,7 +70,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 ### Settings file
 
-`agent.toml` next to the executable, or `--config <path>`. See [`agent.example.toml`](../agent-rs/agent.example.toml).
+`agent.toml` next to the executable, or `--config <path>`. See [`agent.example.toml`](../agent/agent.example.toml).
 
 - `[direct]` (port) and `[orchprox]` (url) turn each connection mode on; at least one is required. No file means direct on 8080. `--port` overrides the port and turns direct on.
 - `[stream]` sets a maximum resolution (a bounding box; the stream starts scaled down to fit), default and maximum frame rate, and default and maximum bitrate.

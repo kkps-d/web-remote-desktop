@@ -2,7 +2,7 @@ bin/
 obj/
 .vs/
 *.user
-agent-rs/target/
+agent/target/
 
 # Local Claude Code files
 /.claude/worktrees/

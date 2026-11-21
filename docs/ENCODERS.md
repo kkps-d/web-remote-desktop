@@ -47,7 +47,7 @@ The Microsoft software encoder is the `mfh264*enc` whose description says "H264 
 - A warning that only some frames were timed means the encoder dropped or reordered frames (B-frames). Its numbers are unreliable, so turn off B-frames and lookahead.
 - If execution policy blocks the script: `powershell -ExecutionPolicy Bypass -File .\scripts\test-encoder.ps1 ...`
 
-To check viewer-side decoding (smart TVs), pick the encoder in the client's stream settings popover; it switches live. The agent's Windows definitions are in `agent-rs/src/platform/windows/mod.rs`. There, CPU encoders get `d3d11download` and `d3d12h264enc` gets `d3d12upload`, which takes D3D11 frames directly.
+To check viewer-side decoding (smart TVs), pick the encoder in the client's stream settings popover; it switches live. The agent's Windows definitions are in `agent/src/platform/windows/mod.rs`. There, CPU encoders get `d3d11download` and `d3d12h264enc` gets `d3d12upload`, which takes D3D11 frames directly.
 
 ## Results
 
