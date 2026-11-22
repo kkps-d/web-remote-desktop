@@ -8,10 +8,12 @@ use std::path::{Path, PathBuf};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use libloading::Library;
-use rustix::fs::{Dev, major, makedev, minor};
+use rustix::fs::{Dev, major, minor};
 use tracing::debug;
 
 use super::wayland_gpu::gnome_render_device;
+
+const DRM_MAJOR: u32 = 226;
 
 pub struct DisplayGpu {
     device: PathBuf,
@@ -46,8 +48,12 @@ struct DrmNode {
 }
 
 pub fn find_capture_gpu(portal: bool) -> Option<DisplayGpu> {
-    let nodes = drm_nodes(Path::new("/sys/class/drm"))?;
-    let renderer = portal.then(gnome_render_device).flatten();
+    let renderer = if portal {
+        Some(gnome_render_device()?)
+    } else {
+        None
+    };
+    let nodes = drm_nodes(Path::new("/dev/dri"))?;
     let device = capture_device(&nodes, renderer)?;
     let description = device.file_name()?.to_string_lossy().into_owned();
     debug!(%description, ?renderer, "Resolved the Linux capture GPU");
@@ -60,22 +66,13 @@ pub fn find_capture_gpu(portal: bool) -> Option<DisplayGpu> {
 fn drm_nodes(directory: &Path) -> Option<Vec<DrmNode>> {
     let mut nodes = Vec::new();
     for entry in fs::read_dir(directory).ok()? {
-        let entry = entry.ok()?;
-        let name = entry.file_name();
-        let name = name.to_str()?;
-        if !["card", "renderD"].iter().any(|prefix| {
-            name.strip_prefix(prefix).is_some_and(|suffix| {
-                !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
-            })
-        }) {
+        let metadata = entry.ok()?.metadata().ok()?;
+        let Some(number) = drm_number(&metadata) else {
             continue;
-        }
-        let path = entry.path();
-        let number = fs::read_to_string(path.join("dev")).ok()?;
-        let (major, minor) = number.trim().split_once(':')?;
+        };
         nodes.push(DrmNode {
-            number: makedev(major.parse().ok()?, minor.parse().ok()?),
-            device: path.join("device").canonicalize().ok()?,
+            number,
+            device: drm_device(number)?,
         });
     }
     Some(nodes)
@@ -102,7 +99,7 @@ pub fn runs_on(factory: &gst::ElementFactory, gpu: &DisplayGpu) -> bool {
     if encoder.find_property("device-path").is_some() {
         return encoder
             .property::<Option<String>>("device-path")
-            .and_then(|path| drm_device(Path::new(&path)))
+            .and_then(|path| drm_device(drm_number(&fs::metadata(path).ok()?)?))
             .is_some_and(|device| device == gpu.device);
     }
     if encoder.find_property("cuda-device-id").is_some() {
@@ -117,12 +114,12 @@ pub fn runs_on(factory: &gst::ElementFactory, gpu: &DisplayGpu) -> bool {
     false
 }
 
-fn drm_device(path: &Path) -> Option<PathBuf> {
-    let metadata = path.metadata().ok()?;
-    if !metadata.file_type().is_char_device() {
-        return None;
-    }
+fn drm_number(metadata: &fs::Metadata) -> Option<Dev> {
     let number = metadata.rdev();
+    (metadata.file_type().is_char_device() && major(number) == DRM_MAJOR).then_some(number)
+}
+
+fn drm_device(number: Dev) -> Option<PathBuf> {
     Path::new("/sys/dev/char")
         .join(format!("{}:{}", major(number), minor(number)))
         .join("device")
@@ -160,10 +157,11 @@ fn cuda_pci_address(ordinal: u32) -> Option<PciAddress> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustix::fs::makedev;
 
     fn node(minor: u32, device: &str) -> DrmNode {
         DrmNode {
-            number: makedev(226, minor),
+            number: makedev(DRM_MAJOR, minor),
             device: PathBuf::from(device),
         }
     }

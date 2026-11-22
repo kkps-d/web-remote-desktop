@@ -6,7 +6,9 @@ The agent uses H.264 so viewers, including smart TVs and low-power devices, can 
 
 The agent prefers NVENC, then VA-API, then x264. A hardware encoder must match the capture GPU and produce baseline H.264 in a short startup check with the session's starting size, frame rate and bitrate. The picker shows why a candidate is unavailable.
 
-GNOME portal capture uses the compositor's render GPU. If Wayland cannot identify that GPU, or the agent captures a named PipeWire node, the agent uses a hardware encoder only when the host has one identifiable DRM GPU. NVENC uses the NVIDIA driver and GStreamer's nvcodec plugin. VA-API uses the installed VA driver and GStreamer's va plugin. See [Linux development](LINUX_DEV.md#checking-hardware-encoders).
+The agent discovers DRM devices under `/dev/dri` and resolves their physical GPU identities through sysfs. A card and render node on the same GPU count as one. GNOME portal capture requires an exact match between the compositor's Wayland DMA-BUF feedback and a visible DRM device. Named PipeWire capture uses hardware when exactly one GPU is visible. If capture GPU identity is missing or ambiguous, the agent uses x264.
+
+NVENC uses the NVIDIA driver and GStreamer's nvcodec plugin. VA-API uses the installed VA driver and GStreamer's va plugin. See [Linux development](LINUX_DEV.md#checking-hardware-encoders).
 
 ## Windows
 

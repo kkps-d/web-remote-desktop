@@ -101,7 +101,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 - The client's toolbar picks resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder. Defaults: native resolution, 30 fps, 8 Mbps.
 - Options above the agent's limits are left out, and saved settings are lowered to them. Changes above the limits are rejected with a 400.
-- Encoders the agent can't use are greyed out with the reason. Windows uses the primary monitor's GPU. Linux uses the GNOME compositor's render GPU or the sole GPU the DRM inventory identifies.
+- Encoders the agent can't use are greyed out with the reason. Windows uses the primary monitor's GPU. On Linux, GNOME portal capture matches the compositor's Wayland feedback to a visible DRM device. Named PipeWire capture uses hardware when `/dev/dri` exposes one identifiable GPU.
 - Each encoder's size limits come from its sink pad template (NVENC, AMF and D3D12: 4096 px at most). A change outside them is rejected with a 400 before the pipeline changes. A display larger than the default encoder accepts starts scaled down to fit.
 - Encode time in stats measures encoder input-to-output latency, including internal queueing.
 
