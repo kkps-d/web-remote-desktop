@@ -91,7 +91,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 - Targets GNOME on Wayland with PipeWire. Setup is in [Linux development](LINUX_DEV.md).
 - **Portal capture:** By default, `platform::Capture` holds an `ashpd` ScreenCast portal session sharing one monitor, with the cursor embedded. Closing it removes GNOME's sharing indicator. Stopping sharing from GNOME ends the session through `on-disconnect=error`.
-- **Named capture:** Linux agents with `[capture]` target a BGRx PipeWire node in the current session. The config supplies the native dimensions for stream limits. Frame rate and scaling are applied downstream. Audio is unavailable. Gamescope input is opt-in via `eis_socket`.
+- **Named capture:** Linux agents with `[capture]` target a BGRx PipeWire node in the current session. The config supplies the native dimensions for stream limits. Frame rate and scaling are applied downstream. Gamescope input is opt-in via `eis_socket`. Named audio is opt-in via `pipewire_audio_sink`.
 - **Consent:** the first stream shows GNOME's share dialog. The offer waits up to 60 s for an answer, then fails and closes the dialog. A restore token in `~/.local/state/web-remote-desktop/screencast-restore-token` skips the dialog later, also after restarts. Delete the file to choose again.
 - **Static screens:** GNOME sends frames only when the screen changes. `keepalive-time=100` resends the last one, and `videorate` caps the variable rate at the chosen frame rate.
 - **Settings changes:** `pipewiresrc` answers a reconfigure event by reconnecting, after which GNOME sends no frames. `Capture::attach` drops reconfigure events before they reach it; the elements after it handle every change.
@@ -208,3 +208,11 @@ One-way: the remote computer's output goes to the client as Opus on the same `we
 - Captures before the output's volume, so a muted computer still streams audio.
 - Unconstrained, `pipewiresrc` picks mono, hence the caps filter.
 - `audio_unavailable()` returns a reason when GStreamer's PipeWire plugin or the PipeWire socket is missing.
+
+Named capture takes the monitor of the configured `pipewire_audio_sink` without
+falling back to the default sink. Audio has its own PipeWire connection so a
+sink error stays local to that source. The audio bin also keeps flush and EOS
+events local to protect the shared WebRTC transport. It must produce Opus
+before the agent answers the offer. If the sink is unavailable or disconnects,
+the agent keeps video and input running and reports `audioUnavailableReason`
+in stream info. A new viewer session retries audio.

@@ -15,10 +15,12 @@ pub use gpu::{DisplayGpu, runs_on};
 pub use input::InputInjector;
 pub use touch::TouchInjector;
 
+use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::Once;
 
 use gstreamer as gst;
+use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with};
 use tracing::debug;
 
 use super::EncoderDefinition;
@@ -54,6 +56,28 @@ fn pipewire_socket() -> Option<PathBuf> {
     let runtime =
         std::env::var_os("PIPEWIRE_RUNTIME_DIR").or_else(|| std::env::var_os("XDG_RUNTIME_DIR"))?;
     Some(PathBuf::from(runtime).join(remote))
+}
+
+/// Open an independent connection so one GStreamer source's errors stay local to it.
+pub fn open_pipewire_socket() -> Result<OwnedFd, String> {
+    let path = pipewire_socket().ok_or("No PipeWire runtime directory")?;
+    let open = || {
+        let address = SocketAddrUnix::new(&path)?;
+        let fd = socket_with(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+            None,
+        )?;
+        connect(&fd, &address)?;
+        Ok::<_, rustix::io::Errno>(fd)
+    };
+    open().map_err(|error| {
+        format!(
+            "Could not connect to PipeWire at {}: {error}",
+            path.display()
+        )
+    })
 }
 
 /// The portal fixes the cursor mode when the session starts, so the stream always shows the

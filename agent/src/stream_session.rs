@@ -21,6 +21,7 @@ use crate::config::CaptureConfig;
 use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::{EncoderCatalog, EncoderInventory, EncoderOption};
 use crate::input::InputChannel;
+use crate::named_audio::NamedAudio;
 use crate::pipeline::{EncoderBin, by_name, caps_size, pipeline_description, static_pad};
 use crate::platform;
 use crate::sdp::{H264Codec, InvalidOffer, find_opus_payload_type};
@@ -30,6 +31,7 @@ use crate::stream_settings::{
 };
 
 const SETUP_TIMEOUT: Duration = Duration::from_secs(10);
+const AUDIO_TIMEOUT: Duration = Duration::from_secs(2);
 // How long the viewer may take to connect after setup before the session ends.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 // How long a "disconnected" connection may take to recover before the session ends.
@@ -81,32 +83,50 @@ impl From<String> for UpdateError {
     }
 }
 
-fn audio_settings(opus: Option<u32>, named_capture: bool) -> (Option<u32>, Option<String>) {
-    if named_capture {
-        return (
-            None,
-            Some("Named PipeWire capture provides no audio".into()),
-        );
+#[derive(Debug, PartialEq)]
+enum AudioOffer<'a> {
+    Desktop(u32),
+    Named(&'a str, u32),
+}
+
+fn audio_offer(
+    opus: Option<u32>,
+    capture: Option<&CaptureConfig>,
+) -> Result<AudioOffer<'_>, &'static str> {
+    let opus = opus.ok_or("The viewer didn't ask for Opus audio")?;
+    match capture {
+        None => Ok(AudioOffer::Desktop(opus)),
+        Some(config) => config
+            .pipewire_audio_sink
+            .as_deref()
+            .map(|sink| AudioOffer::Named(sink, opus))
+            .ok_or("Named PipeWire capture has no audio sink configured"),
     }
-    let Some(opus) = opus else {
-        return (None, Some("The viewer didn't ask for Opus audio".into()));
-    };
-    if let Some(reason) = platform::audio_unavailable() {
-        warn!("Streaming without audio: {reason}.");
-        return (None, Some(reason.into()));
-    }
-    (Some(opus), None)
 }
 
 #[cfg(test)]
 #[test]
-fn named_capture_declines_audio_even_when_the_viewer_offers_it() {
+fn named_audio_requires_a_sink_and_an_opus_offer() {
+    let mut capture = CaptureConfig {
+        pipewire_node: "gamescope".into(),
+        width_px: 1280,
+        height_px: 720,
+        eis_socket: None,
+        pipewire_audio_sink: None,
+    };
+    assert_eq!(audio_offer(Some(111), None), Ok(AudioOffer::Desktop(111)));
     assert_eq!(
-        audio_settings(Some(111), true),
-        (
-            None,
-            Some("Named PipeWire capture provides no audio".into())
-        )
+        audio_offer(Some(111), Some(&capture)),
+        Err("Named PipeWire capture has no audio sink configured")
+    );
+    capture.pipewire_audio_sink = Some("game.audio".into());
+    assert_eq!(
+        audio_offer(Some(111), Some(&capture)),
+        Ok(AudioOffer::Named("game.audio", 111))
+    );
+    assert_eq!(
+        audio_offer(None, Some(&capture)),
+        Err("The viewer didn't ask for Opus audio")
     );
 }
 
@@ -131,7 +151,8 @@ pub struct StreamSession {
     input: Result<Arc<InputChannel>, String>,
     touch_supported: bool,
     // Why the stream has no audio, or None if it has.
-    audio_unavailable: Option<String>,
+    audio_unavailable: OnceLock<String>,
+    named_audio: Mutex<Option<NamedAudio>>,
     // Held for the stream and sets its frame rate. Drop stops
     // the pipeline before the fields drop, so the capture outlives it.
     capture: platform::Capture,
@@ -150,8 +171,29 @@ impl StreamSession {
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
         let named_capture = capture_config.is_some();
-        let (opus_payload_type, audio_unavailable) =
-            audio_settings(find_opus_payload_type(offer_sdp), named_capture);
+        let audio = audio_offer(find_opus_payload_type(offer_sdp), capture_config);
+        let mut desktop_audio = None;
+        let mut named_audio = None;
+        let audio_unavailable = OnceLock::new();
+        let audio = audio.and_then(|offer| match platform::audio_unavailable() {
+            Some(reason) => Err(reason),
+            None => Ok(offer),
+        });
+        match audio {
+            Ok(AudioOffer::Desktop(payload_type)) => desktop_audio = Some(payload_type),
+            Ok(AudioOffer::Named(sink, payload_type)) => {
+                match NamedAudio::new(sink, payload_type) {
+                    Ok(branch) => named_audio = Some(branch),
+                    Err(reason) => {
+                        let _ = audio_unavailable
+                            .set(format!("PipeWire audio sink \"{sink}\": {reason}"));
+                    }
+                }
+            }
+            Err(reason) => {
+                let _ = audio_unavailable.set(reason.into());
+            }
+        }
         let capture = platform::Capture::open(capture_config).map_err(failed)?;
         let encoders = inventory.for_capture(&capture, config).map_err(failed)?;
         let encoder = encoders.default();
@@ -159,7 +201,7 @@ impl StreamSession {
         let description = pipeline_description(
             codec,
             &capture.description(config.default_fps),
-            opus_payload_type,
+            desktop_audio,
             size,
             config.default_fps,
         );
@@ -181,6 +223,9 @@ impl StreamSession {
         encode_timing.attach(&encoder_bin.sink, &encoder_bin.src);
 
         let id = uuid::Uuid::new_v4().simple().to_string();
+        if let Some(reason) = audio_unavailable.get() {
+            info!("Session {id}: streaming without audio: {reason}");
+        }
         let capture_element = by_name(&pipeline, "capture")?;
         capture.attach(&capture_element);
         let capture_src = static_pad(&capture_element, "src")?;
@@ -198,6 +243,7 @@ impl StreamSession {
             input,
             touch_supported: !named_capture,
             audio_unavailable,
+            named_audio: Mutex::new(named_audio),
             capture_src,
             output_src,
             parse_sink,
@@ -286,7 +332,7 @@ impl StreamSession {
     }
 
     pub fn audio_unavailable(&self) -> Option<&str> {
-        self.audio_unavailable.as_deref()
+        self.audio_unavailable.get().map(String::as_str)
     }
 
     pub fn encoding_stats(&self) -> EncodingStats {
@@ -411,7 +457,15 @@ impl StreamSession {
             return;
         }
         self.stop_monitor.lock().unwrap().take();
-        let _ = self.pipeline.set_state(gst::State::Null);
+        {
+            // Serialize pipeline shutdown with changes to the optional audio branch.
+            let mut audio = self.named_audio.lock().unwrap();
+            if let Some(audio) = audio.as_mut() {
+                audio.stop(&self.webrtc);
+                audio.join();
+            }
+            let _ = self.pipeline.set_state(gst::State::Null);
+        }
         if let Ok(input) = &self.input {
             input.stop();
         }
@@ -439,6 +493,8 @@ impl StreamSession {
             }
         }
 
+        self.start_named_audio();
+
         let sdp = gst_sdp::SDPMessage::parse_buffer(offer_sdp.as_bytes())
             .map_err(|_| StartError::InvalidOffer("The offer is not valid SDP.".into()))?;
         let offer = WebRTCSessionDescription::new(WebRTCSDPType::Offer, sdp);
@@ -463,6 +519,52 @@ impl StreamSession {
             .property::<Option<WebRTCSessionDescription>>("local-description")
             .ok_or_else(|| failed("webrtcbin has no local description."))?;
         local.sdp().as_text().map_err(failed)
+    }
+
+    fn start_named_audio(&self) {
+        let deadline = Instant::now() + AUDIO_TIMEOUT;
+        let pad = {
+            let mut audio = self.named_audio.lock().unwrap();
+            let Some(audio) = audio.as_mut() else {
+                return;
+            };
+            match audio.start(&self.pipeline, &self.webrtc) {
+                Ok(pad) => pad,
+                Err(reason) => {
+                    self.disable_named_audio(audio, reason);
+                    return;
+                }
+            }
+        };
+
+        loop {
+            {
+                let mut audio = self.named_audio.lock().unwrap();
+                if self.audio_unavailable.get().is_some() || self.end_reason().is_some() {
+                    return;
+                }
+                let Some(audio) = audio.as_mut() else {
+                    return;
+                };
+                if audio.ready(&pad) {
+                    audio.keep_pad = true;
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    self.disable_named_audio(audio, "Timed out waiting for Opus audio");
+                    return;
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn disable_named_audio(&self, audio: &mut NamedAudio, reason: impl std::fmt::Display) {
+        let reason = format!("PipeWire audio sink \"{}\": {reason}", audio.name);
+        if self.audio_unavailable.set(reason.clone()).is_ok() {
+            warn!("Session {}: streaming without audio: {reason}", self.id);
+            audio.stop(&self.webrtc);
+        }
     }
 
     // webrtcbin's action signals take a GstPromise as their last argument and resolve it when
@@ -582,7 +684,14 @@ impl StreamSession {
                 true
             }
             gst::MessageView::Error(pipeline_error) => {
-                let message = pipeline_error.error();
+                let error = pipeline_error.error();
+                if let Some(audio) = self.named_audio.lock().unwrap().as_mut()
+                    && message.src().is_some_and(|source| audio.owns(source))
+                {
+                    self.disable_named_audio(audio, &error);
+                    return true;
+                }
+                let message = error;
                 error!(
                     "Session {} pipeline error from {source}: {message} ({details})",
                     self.id

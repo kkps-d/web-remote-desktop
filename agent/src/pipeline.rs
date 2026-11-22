@@ -97,7 +97,10 @@ pub fn pipeline_description(
     framerate: i32,
 ) -> String {
     let audio = opus_payload_type.map_or(String::new(), |payload_type| {
-        format!("  {}", audio_description(payload_type))
+        format!(
+            "  {} ! webrtc.",
+            audio_rtp_description(&platform::audio_capture(), payload_type)
+        )
     });
     format!(
         "{capture} ! capsfilter name=output caps={caps}  \
@@ -111,13 +114,11 @@ pub fn pipeline_description(
     )
 }
 
-// Linked after the video, so it gets webrtcbin's sink_1 and matches the offer's audio m-line.
-// Like the video, the RTP caps use the browser's payload type.
-fn audio_description(payload_type: u32) -> String {
+// Like video, the RTP caps use the browser's payload type.
+pub fn audio_rtp_description(capture: &str, payload_type: u32) -> String {
     format!(
         "{capture} ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! \
-         opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt={payload_type} ! webrtc.",
-        capture = platform::audio_capture(),
+         opusenc bitrate=128000 frame-size=10 ! rtpopuspay pt={payload_type}"
     )
 }
 

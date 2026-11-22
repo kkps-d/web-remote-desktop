@@ -13,14 +13,14 @@ mod linux;
 #[cfg(target_os = "linux")]
 use self::linux as os;
 
-#[cfg(target_os = "linux")]
-pub use os::EisConnection;
 #[cfg(windows)]
 pub use os::find_display_gpu;
 pub use os::{
     Capture, DisplayGpu, ENCODERS, InputInjector, TouchInjector, audio_capture, audio_unavailable,
     output_caps, runs_on, show_cursor, use_physical_pixels,
 };
+#[cfg(target_os = "linux")]
+pub use os::{EisConnection, open_pipewire_socket};
 
 /// An encoder this OS can use, if it is installed.
 pub struct EncoderDefinition {

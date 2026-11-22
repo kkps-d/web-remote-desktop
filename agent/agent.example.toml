@@ -11,7 +11,7 @@ port = 8080 # --port overrides this, and turns direct connections on
 # url = "wss://orchprox.example.com"
 
 # Linux only. Use a named BGRx PipeWire video source such as gamescope.
-# Use the native dimensions. Audio is unavailable in named capture.
+# Use the native dimensions.
 # [capture]
 # pipewire_node = "gamescope"
 # width_px = 1280
@@ -19,6 +19,8 @@ port = 8080 # --port overrides this, and turns direct connections on
 # Set the EIS socket to enable gamescope keyboard and mouse input. A filename
 # is resolved under XDG_RUNTIME_DIR. An absolute path is also accepted.
 # eis_socket = "gamescope-0-ei"
+# Set the PipeWire sink node name to stream its monitor audio.
+# pipewire_audio_sink = "containerz-game-audio"
 
 # Leave out any setting to use its default.
 [stream]

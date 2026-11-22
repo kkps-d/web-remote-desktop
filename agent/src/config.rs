@@ -63,6 +63,7 @@ pub struct CaptureConfig {
     pub width_px: i32,
     pub height_px: i32,
     pub eis_socket: Option<PathBuf>,
+    pub pipewire_audio_sink: Option<String>,
 }
 
 impl CaptureConfig {
@@ -77,11 +78,18 @@ impl CaptureConfig {
         if !cfg!(target_os = "linux") {
             return Err("[capture] is supported only on Linux.".into());
         }
-        if self.pipewire_node.trim().is_empty()
-            || self.pipewire_node.trim() != self.pipewire_node
-            || self.pipewire_node.chars().any(char::is_control)
-        {
+        if !valid_node_name(&self.pipewire_node) {
             return Err("[capture] pipewire_node must be a non-empty node name.".into());
+        }
+        if self
+            .pipewire_audio_sink
+            .as_deref()
+            .is_some_and(|name| !valid_sink_name(name))
+        {
+            return Err(
+                "[capture] pipewire_audio_sink must start with a letter or underscore and contain only ASCII letters, digits, dots, underscores, or hyphens."
+                    .into(),
+            );
         }
         for (name, value) in [("width_px", self.width_px), ("height_px", self.height_px)] {
             if value < 64 || value % 2 != 0 {
@@ -104,6 +112,19 @@ impl CaptureConfig {
         }
         Ok(())
     }
+}
+
+fn valid_node_name(name: &str) -> bool {
+    !name.is_empty() && name.trim() == name && !name.chars().any(char::is_control)
+}
+
+fn valid_sink_name(name: &str) -> bool {
+    // PipeWire also interprets numeric target-object values as object serials.
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
 
 impl Config {
@@ -285,6 +306,7 @@ mod tests {
             let capture = config.unwrap().capture.unwrap();
             assert_eq!(capture.pipewire_node, "gamescope");
             assert_eq!(capture.eis_socket, None);
+            assert_eq!(capture.pipewire_audio_sink, None);
             assert_eq!(
                 capture.resolution(),
                 Resolution {
@@ -342,6 +364,38 @@ mod tests {
             assert!(
                 config(socket).unwrap_err().contains("eis_socket"),
                 "{socket:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn validates_optional_pipewire_audio_sink() {
+        let config = |sink: &str| {
+            capture(&format!(
+                "pipewire_node = 'gamescope'\nwidth_px = 1280\nheight_px = 720\npipewire_audio_sink = {sink}"
+            ))
+        };
+        assert_eq!(
+            config("'game.audio'")
+                .unwrap()
+                .capture
+                .unwrap()
+                .pipewire_audio_sink
+                .as_deref(),
+            Some("game.audio")
+        );
+        for sink in [
+            "''",
+            "' game.audio'",
+            "'game.audio '",
+            r#""game\n.audio""#,
+            "'42'",
+            "'0x2a'",
+        ] {
+            assert!(
+                config(sink).unwrap_err().contains("pipewire_audio_sink"),
+                "{sink}"
             );
         }
     }

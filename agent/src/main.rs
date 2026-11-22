@@ -3,6 +3,7 @@ mod encode_timing;
 mod encoders;
 mod http;
 mod input;
+mod named_audio;
 mod pipeline;
 mod platform;
 mod sdp;

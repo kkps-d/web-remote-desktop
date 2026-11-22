@@ -66,7 +66,7 @@ The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. A
 
 For gamescope, set `[capture]` and run the agent in the compositor’s PipeWire
 session. Set `eis_socket` and install `libei1` (1.4 or later) to enable keyboard
-and mouse input. See the [example config](agent/agent.example.toml).
+and mouse input. Set `pipewire_audio_sink` to stream a named sink monitor. See the [example config](agent/agent.example.toml).
 
 #### Options
 
