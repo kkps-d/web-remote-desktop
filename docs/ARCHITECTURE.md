@@ -87,7 +87,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 ### Linux pipeline
 
-`pipewiresrc ! videorate drop-only=true ! videoconvert ! videoscale ! capsfilter ! <encoder bin> ! …`, into NV12 in system memory.
+`pipewiresrc ! videorate drop-only=true ! capsfilter name=rate caps-change-mode=delayed ! videoconvert ! videoscale ! capsfilter name=output ! <encoder bin> ! …`, into NV12 in system memory.
 
 - Targets GNOME on Wayland with PipeWire. Setup is in [Linux development](LINUX_DEV.md).
 - **Capture:** `platform::Capture` holds an `ashpd` ScreenCast portal session sharing one monitor, with the cursor embedded, for as long as the stream runs. Closing it removes GNOME's sharing indicator. Stopping sharing from GNOME ends the session, through `on-disconnect=error`.
@@ -108,9 +108,9 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 Changes apply without SDP renegotiation:
 
-- New caps on the capsfilter rescale and change the frame rate; the encoder restarts with a keyframe.
+- Windows sets resolution and frame rate on the output capsfilter. Linux sets the frame rate on the filter immediately after `videorate` and resolution on the output capsfilter. The Linux rate filter temporarily accepts the previous caps so a frame already leaving `videorate` can pass. The encoder restarts with a keyframe.
 - The encoder picks up a new `bitrate` on the next frame.
-- Switching encoder blocks the capsfilter's output for one frame and swaps the encoder bin; the new encoder starts with a keyframe.
+- Switching encoder blocks the output capsfilter's source pad for one frame and swaps the encoder bin. The new encoder starts with a keyframe.
 
 ## Input
 

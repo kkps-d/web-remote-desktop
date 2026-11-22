@@ -71,21 +71,15 @@ impl Capture {
         })
     }
 
-    /// The capture segment of the pipeline; its source is named "capture". GNOME's stream has a
-    /// variable frame rate, so videorate caps it at `framerate`, set by the capsfilter right
-    /// after it rather than by the output caps: videoconvert and videoscale can't change the
-    /// frame rate, so a frame already past videorate when the rate changes would fail to
-    /// negotiate there, and pipewiresrc can't renegotiate to recover; see `attach`. The portal's
-    /// format never changes. When the user stops sharing, pipewiresrc posts an error, which
-    /// ends the session.
+    /// The capture segment of the pipeline. When the user stops sharing, pipewiresrc posts an
+    /// error, which ends the session.
     pub fn description(&self, framerate: i32) -> String {
         format!(
             "pipewiresrc fd={fd} path={node} name=capture keepalive-time={KEEPALIVE_MS} \
-             on-disconnect=error ! videorate drop-only=true ! \
-             capsfilter name=rate caps={caps} ! videoconvert ! videoscale",
+             on-disconnect=error ! {processing}",
             fd = self.monitor.remote.as_raw_fd(),
             node = self.monitor.node_id,
-            caps = rate_caps(framerate),
+            processing = video_processing(framerate),
         )
     }
 
@@ -128,6 +122,15 @@ impl Drop for Capture {
             debug!("Could not close the screen cast session: {error}");
         }
     }
+}
+
+fn video_processing(framerate: i32) -> String {
+    // Delayed mode lets an in-flight frame from videorate through with the previous caps.
+    format!(
+        "videorate drop-only=true ! capsfilter name=rate caps-change-mode=delayed caps={} ! \
+         videoconvert ! videoscale",
+        rate_caps(framerate),
+    )
 }
 
 fn rate_caps(framerate: i32) -> String {
@@ -219,3 +222,6 @@ fn save_restore_token(token: &str) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;
