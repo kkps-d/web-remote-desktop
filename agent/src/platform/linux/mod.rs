@@ -2,6 +2,7 @@
 //! portal through PipeWire, the audio from PipeWire, and input goes in through uinput.
 
 mod capture;
+mod eis;
 mod gpu;
 mod input;
 mod key_codes;
@@ -9,6 +10,7 @@ mod touch;
 mod wayland_gpu;
 
 pub use capture::Capture;
+pub use eis::EisConnection;
 pub use gpu::{DisplayGpu, runs_on};
 pub use input::InputInjector;
 pub use touch::TouchInjector;

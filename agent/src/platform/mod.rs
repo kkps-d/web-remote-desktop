@@ -13,6 +13,8 @@ mod linux;
 #[cfg(target_os = "linux")]
 use self::linux as os;
 
+#[cfg(target_os = "linux")]
+pub use os::EisConnection;
 #[cfg(windows)]
 pub use os::find_display_gpu;
 pub use os::{

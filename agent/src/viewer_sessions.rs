@@ -22,6 +22,8 @@ pub struct StreamInfo {
     limits: StreamLimits,
     /// Why the stream has no audio, or None if it has.
     audio_unavailable_reason: Option<String>,
+    input_unavailable_reason: Option<String>,
+    touch_supported: bool,
 }
 
 /// The most this agent allows. `resolution` is the source, or scaled down to fit the agent's
@@ -152,6 +154,8 @@ impl ViewerSessions {
                 bitrate_kbps: self.config.max_bitrate_kbps,
             },
             audio_unavailable_reason: session.audio_unavailable().map(str::to_owned),
+            input_unavailable_reason: session.input_unavailable().map(str::to_owned),
+            touch_supported: session.touch_supported(),
         }
     }
 

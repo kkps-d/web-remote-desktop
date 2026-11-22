@@ -37,9 +37,19 @@ export function useStreamSettings(connection?: AgentConnection) {
       }
     }
 
+    const refresh = () => {
+      connection.getStreamInfo().then(
+        (info) => {
+          if (!cancelled) setState((previous) => ({ ...previous, connection, info }))
+        },
+        () => {}, // The session may already have ended.
+      )
+    }
+    connection.input.addEventListener("close", refresh)
     load(connection).then((result) => !cancelled && setState({ connection, ...result }))
     return () => {
       cancelled = true
+      connection.input.removeEventListener("close", refresh)
     }
   }, [connection])
 

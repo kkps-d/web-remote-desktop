@@ -17,6 +17,7 @@ import { INPUT_RATES_HZ, type InputSettings } from "@/lib/saved-settings"
 
 interface InputMenuProps extends InputSettings {
   disabled: boolean
+  touchSupported: boolean
   onMouseChange: (mouse: MouseMode) => void
   onTouchChange: (touch: TouchMode) => void
   onRateChange: (rateHz: number) => void
@@ -28,6 +29,7 @@ export function InputMenu({
   touch,
   rateHz,
   disabled,
+  touchSupported,
   onMouseChange,
   onTouchChange,
   onRateChange,
@@ -59,7 +61,9 @@ export function InputMenu({
         <DropdownMenuGroup>
           <DropdownMenuLabel>Touch</DropdownMenuLabel>
           <DropdownMenuRadioGroup value={touch} onValueChange={onTouchChange}>
-            <DropdownMenuRadioItem value="touchscreen">Touchscreen</DropdownMenuRadioItem>
+            <DropdownMenuRadioItem value="touchscreen" disabled={!touchSupported}>
+              {touchSupported ? "Touchscreen" : "Touchscreen unavailable"}
+            </DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="direct">Direct</DropdownMenuRadioItem>
             <DropdownMenuRadioItem value="trackpad">Trackpad</DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>

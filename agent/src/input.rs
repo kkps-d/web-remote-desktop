@@ -3,6 +3,8 @@
 //! closes or the session ends.
 
 mod channel;
+#[cfg(target_os = "linux")]
+mod eis;
 pub mod touch;
 
 use std::collections::HashSet;
@@ -22,7 +24,7 @@ pub fn to_pixel(x: f64, y: f64, width: i32, height: i32) -> (i32, i32) {
 }
 
 /// Injects input into the OS. Positions and sizes refer to the primary display.
-pub trait InputBackend: Send {
+pub trait InputBackend {
     /// Moves to a position given as 0–1 fractions of the display.
     fn move_to(&mut self, x: f64, y: f64);
     /// Moves by whole pixels, without pointer acceleration.
@@ -33,6 +35,11 @@ pub trait InputBackend: Send {
     /// Presses or releases a key by its `KeyboardEvent.code`. Returns false, sending nothing,
     /// for a code it doesn't know.
     fn key(&mut self, code: &str, down: bool) -> bool;
+
+    /// Whether to forward auto-repeat for a key already held down.
+    fn repeats_key_down(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,8 +90,10 @@ impl<B: InputBackend> InputState<B> {
     }
 
     fn key(&mut self, code: &str, down: bool) {
-        // A repeated down is an auto-repeat and is sent again.
         if down {
+            if !self.backend.repeats_key_down() && self.held_keys.contains(code) {
+                return;
+            }
             if self.backend.key(code, true) {
                 self.held_keys.insert(code.to_owned());
             }
@@ -115,7 +124,7 @@ enum Rejected {
 fn apply<B: InputBackend, T: TouchBackend>(
     text: &str,
     input: &mut InputState<B>,
-    touch: &mut TouchState<T>,
+    touch: Option<&mut TouchState<T>>,
     set_stream_cursor: &dyn Fn(bool),
 ) -> Result<(), Rejected> {
     match parse(text).map_err(Rejected::Invalid)? {
@@ -124,10 +133,16 @@ fn apply<B: InputBackend, T: TouchBackend>(
         InputMessage::Button { button, down } => input.button(button, down),
         InputMessage::Wheel { dx, dy } => input.backend.scroll(dx, dy),
         InputMessage::Key { code, down } => input.key(&code, down),
-        InputMessage::Touch { contacts, canceled } => touch.update(&contacts, canceled),
+        InputMessage::Touch { contacts, canceled } => {
+            if let Some(touch) = touch {
+                touch.update(&contacts, canceled);
+            }
+        }
         InputMessage::ReleaseAll => {
             input.release_all();
-            touch.cancel_all();
+            if let Some(touch) = touch {
+                touch.cancel_all();
+            }
         }
         InputMessage::Cursor { visible } => set_stream_cursor(visible),
         InputMessage::Unknown => return Err(Rejected::Unknown),
@@ -402,7 +417,7 @@ mod tests {
     fn receive(messages: &[&str]) -> Vec<Sent> {
         let mut input = input();
         for text in messages {
-            let _ = apply(text, &mut input, &mut touch(), &|_| {});
+            let _ = apply(text, &mut input, Some(&mut touch()), &|_| {});
         }
         input.backend.0
     }
@@ -412,7 +427,7 @@ mod tests {
     fn receive_touch(messages: &[&str]) -> (Vec<Vec<TouchPoint>>, Vec<Sent>) {
         let (mut input, mut touch) = (input(), touch());
         for text in messages {
-            apply(text, &mut input, &mut touch, &|_| {}).unwrap();
+            apply(text, &mut input, Some(&mut touch), &|_| {}).unwrap();
         }
         (touch.into_backend().0, input.backend.0)
     }
@@ -483,7 +498,7 @@ mod tests {
         for visible in [true, false] {
             let cursor = Mutex::new(Vec::new());
             let text = format!(r#"{{"type":"cursor","visible":{visible}}}"#);
-            apply(&text, &mut input(), &mut touch(), &|visible| {
+            apply(&text, &mut input(), Some(&mut touch()), &|visible| {
                 cursor.lock().unwrap().push(visible)
             })
             .unwrap();
@@ -495,7 +510,12 @@ mod tests {
     #[test]
     fn rejects_unknown_types() {
         let mut input = input();
-        let result = apply(r#"{"type":"scroll"}"#, &mut input, &mut touch(), &|_| {});
+        let result = apply(
+            r#"{"type":"scroll"}"#,
+            &mut input,
+            Some(&mut touch()),
+            &|_| {},
+        );
 
         assert!(matches!(result, Err(Rejected::Unknown)));
         assert!(input.backend.0.is_empty());
@@ -507,13 +527,13 @@ mod tests {
         let rejected = apply(
             r#"{"type":"move","x":0.5}"#,
             &mut input,
-            &mut touch(),
+            Some(&mut touch()),
             &|_| {},
         );
         apply(
             r#"{"type":"button","button":0,"down":true}"#,
             &mut input,
-            &mut touch(),
+            Some(&mut touch()),
             &|_| {},
         )
         .unwrap();

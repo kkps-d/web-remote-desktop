@@ -81,11 +81,11 @@ impl From<String> for UpdateError {
     }
 }
 
-fn audio_settings(opus: Option<u32>, video_only: bool) -> (Option<u32>, Option<String>) {
-    if video_only {
+fn audio_settings(opus: Option<u32>, named_capture: bool) -> (Option<u32>, Option<String>) {
+    if named_capture {
         return (
             None,
-            Some("Named PipeWire capture streams video only".into()),
+            Some("Named PipeWire capture provides no audio".into()),
         );
     }
     let Some(opus) = opus else {
@@ -105,7 +105,7 @@ fn named_capture_declines_audio_even_when_the_viewer_offers_it() {
         audio_settings(Some(111), true),
         (
             None,
-            Some("Named PipeWire capture streams video only".into())
+            Some("Named PipeWire capture provides no audio".into())
         )
     );
 }
@@ -128,7 +128,8 @@ pub struct StreamSession {
     stopped: AtomicBool,
     // Dropping the sender stops the connection monitor.
     stop_monitor: Mutex<Option<mpsc::Sender<()>>>,
-    input: Option<Arc<InputChannel>>,
+    input: Result<Arc<InputChannel>, String>,
+    touch_supported: bool,
     // Why the stream has no audio, or None if it has.
     audio_unavailable: Option<String>,
     // Held for the stream and sets its frame rate. Drop stops
@@ -148,9 +149,9 @@ impl StreamSession {
         capture_config: Option<&CaptureConfig>,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
-        let video_only = capture_config.is_some();
+        let named_capture = capture_config.is_some();
         let (opus_payload_type, audio_unavailable) =
-            audio_settings(find_opus_payload_type(offer_sdp), video_only);
+            audio_settings(find_opus_payload_type(offer_sdp), named_capture);
         let capture = platform::Capture::open(capture_config).map_err(failed)?;
         let encoders = inventory.for_capture(&capture, config).map_err(failed)?;
         let encoder = encoders.default();
@@ -184,16 +185,18 @@ impl StreamSession {
         capture.attach(&capture_element);
         let capture_src = static_pad(&capture_element, "src")?;
         // The viewer hides the stream cursor while it shows its own (absolute pointer mode).
-        let input = (!video_only).then(|| {
-            InputChannel::connect(&webrtc, &id, move |visible| {
-                platform::show_cursor(&capture_element, visible);
-            })
+        let input = InputChannel::connect(&webrtc, &id, capture_config, move |visible| {
+            platform::show_cursor(&capture_element, visible);
         });
+        if let Err(reason) = &input {
+            info!("Session {id}: streaming without input: {reason}");
+        }
 
         let session = Arc::new(Self {
             id,
             capture,
             input,
+            touch_supported: !named_capture,
             audio_unavailable,
             capture_src,
             output_src,
@@ -271,6 +274,17 @@ impl StreamSession {
     }
 
     /// Why the stream has no audio, or None if it has.
+    pub fn input_unavailable(&self) -> Option<&str> {
+        match &self.input {
+            Ok(input) => input.unavailable_reason(),
+            Err(reason) => Some(reason),
+        }
+    }
+
+    pub fn touch_supported(&self) -> bool {
+        self.touch_supported
+    }
+
     pub fn audio_unavailable(&self) -> Option<&str> {
         self.audio_unavailable.as_deref()
     }
@@ -398,8 +412,8 @@ impl StreamSession {
         }
         self.stop_monitor.lock().unwrap().take();
         let _ = self.pipeline.set_state(gst::State::Null);
-        if let Some(input) = &self.input {
-            input.release_all();
+        if let Ok(input) = &self.input {
+            input.stop();
         }
     }
 
@@ -545,7 +559,7 @@ impl StreamSession {
             // SCTP carries the input channel; its association fails when the viewer closes the
             // connection. The video keeps going, and the connection monitor ends the session.
             gst::MessageView::Error(_) if source.starts_with("sctp") => {
-                if let Some(input) = &self.input {
+                if let Ok(input) = &self.input {
                     input.closed(&format!("failed: {source} association ended"));
                 }
                 true

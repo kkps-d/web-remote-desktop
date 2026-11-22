@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
-import { LoaderCircle, Maximize, Minimize, Unplug, Volume2, VolumeX } from "lucide-react"
+import {
+  LoaderCircle,
+  Maximize,
+  Minimize,
+  MousePointer2,
+  Unplug,
+  Volume2,
+  VolumeX,
+} from "lucide-react"
 
 import { InputMenu } from "@/components/input-menu"
 import { ShortcutsMenu } from "@/components/shortcuts-menu"
@@ -49,17 +57,22 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
   const isFullscreen = useIsFullscreen()
   const streamSettings = useStreamSettings(connection)
   const [inputSettings, setInputSettings] = useInputSettings()
+  const inputUnavailableReason = streamSettings.info?.inputUnavailableReason
+  const touchSupported = streamSettings.info?.touchSupported ?? true
+  const touch =
+    !touchSupported && inputSettings.touch === "touchscreen" ? "direct" : inputSettings.touch
   // The toolbar is hidden in fullscreen, so leaving the stage leaves fullscreen too.
   const focusToolbar = useCallback(() => {
     if (document.fullscreenElement) document.exitFullscreen()
     toolbarRef.current?.querySelector("button")?.focus()
   }, [])
   const inputSender = useRemoteInput({
-    connection,
+    connection: inputUnavailableReason ? undefined : connection,
     stageRef,
     videoRef,
     onLeaveKeyboard: focusToolbar,
     ...inputSettings,
+    touch,
   })
 
   const audio = useStreamPlayback(videoRef, address, connection)
@@ -100,16 +113,23 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         <span className="min-w-0 truncate text-sm text-muted-foreground">{address}</span>
 
         <div ref={toolbarRef} className="ml-auto flex items-center gap-1">
-          <InputMenu
-            mouse={inputSettings.mouse}
-            touch={inputSettings.touch}
-            rateHz={inputSettings.rateHz}
-            disabled={!connected}
-            onMouseChange={(mouse) => setInputSettings((current) => ({ ...current, mouse }))}
-            onTouchChange={(touch) => setInputSettings((current) => ({ ...current, touch }))}
-            onRateChange={(rateHz) => setInputSettings((current) => ({ ...current, rateHz }))}
-          />
-          <ShortcutsMenu sender={inputSender} disabled={!connected} />
+          {inputUnavailableReason ? (
+            <ToolbarButton label={`Input unavailable: ${inputUnavailableReason}`} disabled>
+              <MousePointer2 aria-hidden />
+            </ToolbarButton>
+          ) : (
+            <InputMenu
+              mouse={inputSettings.mouse}
+              touch={touch}
+              rateHz={inputSettings.rateHz}
+              disabled={!connected}
+              touchSupported={touchSupported}
+              onMouseChange={(mouse) => setInputSettings((current) => ({ ...current, mouse }))}
+              onTouchChange={(touch) => setInputSettings((current) => ({ ...current, touch }))}
+              onRateChange={(rateHz) => setInputSettings((current) => ({ ...current, rateHz }))}
+            />
+          )}
+          <ShortcutsMenu sender={inputSender} disabled={!connected || !!inputUnavailableReason} />
           <StreamSettingsPicker
             info={streamSettings.info}
             error={streamSettings.error}
@@ -157,10 +177,14 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
       {/* Focusable so it receives the keys sent to the remote computer. */}
       <div
         ref={stageRef}
-        tabIndex={0}
+        tabIndex={inputUnavailableReason ? undefined : 0}
         role="application"
         aria-label={`Remote desktop of ${address}`}
-        aria-description={`Keys go to the remote computer. Press ${LEAVE_SHORTCUT} to return to the toolbar.`}
+        aria-description={
+          inputUnavailableReason
+            ? "Remote input is unavailable."
+            : `Keys go to the remote computer. Press ${LEAVE_SHORTCUT} to return to the toolbar.`
+        }
         className="relative min-h-0 flex-1 bg-black outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
       >
         <video
@@ -203,7 +227,7 @@ function ToolbarButton({
 }: {
   label: string
   disabled?: boolean
-  onClick: () => void
+  onClick?: () => void
   children: ReactNode
 }) {
   // A disabled button stays focusable and hoverable so its tooltip can say why.

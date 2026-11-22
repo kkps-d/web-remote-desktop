@@ -56,6 +56,8 @@ export interface StreamInfo {
   limits: StreamLimits
   /** Why the stream has no audio, or null if it has. */
   audioUnavailableReason: string | null
+  inputUnavailableReason?: string | null
+  touchSupported?: boolean
 }
 
 /** The most the agent allows. `resolution` is the source, or scaled down to the agent's limit. */

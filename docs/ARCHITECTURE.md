@@ -91,7 +91,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 - Targets GNOME on Wayland with PipeWire. Setup is in [Linux development](LINUX_DEV.md).
 - **Portal capture:** By default, `platform::Capture` holds an `ashpd` ScreenCast portal session sharing one monitor, with the cursor embedded. Closing it removes GNOME's sharing indicator. Stopping sharing from GNOME ends the session through `on-disconnect=error`.
-- **Named capture:** Linux agents with `[capture]` target a BGRx PipeWire node in the current session. The config supplies the native dimensions for stream limits. Frame rate and scaling are applied downstream. This mode publishes video and skips audio and input injection.
+- **Named capture:** Linux agents with `[capture]` target a BGRx PipeWire node in the current session. The config supplies the native dimensions for stream limits. Frame rate and scaling are applied downstream. Audio is unavailable. Gamescope input is opt-in via `eis_socket`.
 - **Consent:** the first stream shows GNOME's share dialog. The offer waits up to 60 s for an answer, then fails and closes the dialog. A restore token in `~/.local/state/web-remote-desktop/screencast-restore-token` skips the dialog later, also after restarts. Delete the file to choose again.
 - **Static screens:** GNOME sends frames only when the screen changes. `keepalive-time=100` resends the last one, and `videorate` caps the variable rate at the chosen frame rate.
 - **Settings changes:** `pipewiresrc` answers a reconfigure event by reconnecting, after which GNOME sends no frames. `Capture::attach` drops reconfigure events before they reach it; the elements after it handle every change.
@@ -164,7 +164,7 @@ The stream cursor follows the pointer mode over this channel rather than `PATCH 
 
 ### Linux injection
 
-Each session creates uinput devices with the `evdev` crate, which the compositor handles like real hardware. Without access to `/dev/uinput`, the agent streams without input.
+Each desktop session creates uinput devices with the `evdev` crate, which the compositor handles like real hardware. Without access to `/dev/uinput`, the agent streams without input.
 
 | Message | Device |
 | --- | --- |
@@ -173,6 +173,14 @@ Each session creates uinput devices with the `evdev` crate, which the compositor
 | `button`, `wheel` | The absolute pointer. The wheel sends `REL_WHEEL_HI_RES` (120 per notch) and `REL_WHEEL` once a whole notch adds up. |
 | `key` | Keyboard, through the `KeyboardEvent.code` → `KEY_*` table in `key_codes.rs`. The compositor repeats held keys itself. |
 | `touch` | Touchscreen: multitouch protocol B, `INPUT_PROP_DIRECT`, 10 slots. A canceled contact lifts. |
+
+### Gamescope input
+
+Named capture with an `eis_socket` uses a libei connection per viewer for keyboard
+and pointer events. Absolute motion maps to the native capture dimensions.
+The worker releases held keys and buttons before ending emulation. Stream info
+reports `inputUnavailableReason` and `touchSupported`. The client refreshes them
+when the input channel closes and uses mouse emulation for touch.
 
 ## Audio
 

@@ -62,6 +62,7 @@ pub struct CaptureConfig {
     pub pipewire_node: String,
     pub width_px: i32,
     pub height_px: i32,
+    pub eis_socket: Option<PathBuf>,
 }
 
 impl CaptureConfig {
@@ -87,6 +88,18 @@ impl CaptureConfig {
                 return Err(format!(
                     "[capture] {name} must be an even number of at least 64 pixels."
                 ));
+            }
+        }
+        if let Some(socket) = &self.eis_socket {
+            let path = socket.to_string_lossy();
+            if path.trim().is_empty()
+                || path.trim() != path
+                || path.chars().any(char::is_control)
+                || (!socket.is_absolute() && socket.file_name() != Some(socket.as_os_str()))
+            {
+                return Err(
+                    "[capture] eis_socket must be an absolute path or socket filename.".into(),
+                );
             }
         }
         Ok(())
@@ -271,6 +284,7 @@ mod tests {
         if cfg!(target_os = "linux") {
             let capture = config.unwrap().capture.unwrap();
             assert_eq!(capture.pipewire_node, "gamescope");
+            assert_eq!(capture.eis_socket, None);
             assert_eq!(
                 capture.resolution(),
                 Resolution {
@@ -294,6 +308,41 @@ mod tests {
             "pipewire_node = \"gamescope\"\nwidth_px = 1280",
         ] {
             assert!(capture(settings).is_err(), "{settings}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn validates_eis_socket_paths() {
+        let config = |socket: &str| {
+            capture(&format!(
+                "pipewire_node = 'gamescope'\nwidth_px = 1280\nheight_px = 720\neis_socket = '{socket}'"
+            ))
+        };
+        for socket in ["gamescope-0-ei", "/run/user/1000/gamescope-0-ei"] {
+            assert_eq!(
+                config(socket)
+                    .unwrap()
+                    .capture
+                    .unwrap()
+                    .eis_socket
+                    .as_deref(),
+                Some(Path::new(socket))
+            );
+        }
+        for socket in [
+            "",
+            " gamescope-0-ei",
+            ".",
+            "..",
+            "../gamescope-0-ei",
+            "./gamescope-0-ei",
+            "dir/gamescope-0-ei",
+        ] {
+            assert!(
+                config(socket).unwrap_err().contains("eis_socket"),
+                "{socket:?}"
+            );
         }
     }
 
