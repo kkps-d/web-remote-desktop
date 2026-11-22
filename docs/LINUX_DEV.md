@@ -49,12 +49,22 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Check the elements:
 
 ```bash
-for e in webrtcbin nicesrc dtlssrtpenc rtph264pay rtpopuspay capssetter h264parse opusenc x264enc pipewiresrc vah264enc; do
+for e in webrtcbin nicesrc dtlssrtpenc rtph264pay rtpopuspay capssetter h264parse opusenc x264enc pipewiresrc; do
   gst-inspect-1.0 --exists $e && echo "ok      $e" || echo "missing $e"
 done
 ```
 
-Everything should be `ok`, except `vah264enc` without GPU passthrough.
+Everything should be `ok`.
+
+## Checking hardware encoders
+
+Use a Linux desktop session with access to its GPU devices. Check the GStreamer factories for the installed driver.
+
+```bash
+gst-inspect-1.0 | rg 'va(renderD[0-9]+)?h264(lp)?enc|nvh264(device[0-9]+)?enc'
+```
+
+Connect a viewer and check the agent log for the capture GPU and usable encoders. The stream settings picker shows why hardware encoding is unavailable. On a hybrid GNOME desktop, compare the logged PCI address to the compositor's render device. Test switching to x264 and back, then reconnect. In a VM without GPU passthrough, expect x264.
 
 ## Input access
 

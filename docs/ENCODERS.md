@@ -1,10 +1,18 @@
-# Encoder picks (Windows)
+# Encoders
 
-Candidate H.264 encoders on Windows for each kind of hardware, to verify on real machines. On Linux the agent lists x264, VA and NVENC; only x264 works for now. Only H.264 is picked because almost every viewer, including smart TVs and low-power devices, decodes it in hardware.
+The agent uses H.264 so viewers, including smart TVs and low-power devices, can decode it in hardware.
+
+## Linux
+
+The agent prefers NVENC, then VA-API, then x264. A hardware encoder must match the capture GPU and produce baseline H.264 in a short startup check with the session's starting size, frame rate and bitrate. The picker shows why a candidate is unavailable.
+
+GNOME portal capture uses the compositor's render GPU. If Wayland cannot identify that GPU, or the agent captures a named PipeWire node, the agent uses a hardware encoder only when the host has one identifiable DRM GPU. NVENC uses the NVIDIA driver and GStreamer's nvcodec plugin. VA-API uses the installed VA driver and GStreamer's va plugin. See [Linux development](LINUX_DEV.md#checking-hardware-encoders).
+
+## Windows
 
 Each group has a main pick and a fallback that loads through a different driver path, so one failing doesn't take out the other.
 
-## Picks
+### Picks
 
 | Hardware | Main | Fallback |
 |---|---|---|
@@ -20,7 +28,7 @@ Notes:
 - See [known encoder issues](KNOWN_ISSUES.md#encoders) for the NVENC and Media Foundation conflict and the AMF performance limitation.
 - AV1 would give better quality per bit but needs NVIDIA Ada (RTX 40) or AMD RDNA3 or newer, and many TVs can't decode it in hardware.
 
-## Element names
+### Element names
 
 Names vary per machine. GStreamer registers one element per GPU, and extra adapters get a `deviceN` suffix (`mfh264device1enc`, `d3d12h264device2enc`). The unsuffixed name is the first adapter. List them with their vendor or GPU name:
 
@@ -30,7 +38,7 @@ Names vary per machine. GStreamer registers one element per GPU, and extra adapt
 
 The Microsoft software encoder is the `mfh264*enc` whose description says "H264 Encoder MFT" without a vendor name.
 
-## Testing
+### Testing
 
 [`scripts/test-encoder.ps1`](../scripts/test-encoder.ps1) captures the screen like the agent does and reports per-frame encode time. Pass the encoder with its properties; add `-Cpu` for CPU encoders and `-D3D12` for `d3d12*enc` encoders, which can't take D3D11 frames.
 
@@ -49,7 +57,7 @@ The Microsoft software encoder is the `mfh264*enc` whose description says "H264 
 
 To check viewer-side decoding (smart TVs), pick the encoder in the client's stream settings popover; it switches live. The agent's Windows definitions are in `agent/src/platform/windows/mod.rs`. There, CPU encoders get `d3d11download` and `d3d12h264enc` gets `d3d12upload`, which takes D3D11 frames directly.
 
-## Results
+### Results
 
 Baseline machine: RTX 5080, Ryzen 7 7800X3D with Radeon iGPU, GStreamer 1.28.8. Measured at 1080p60 on a synthetic test pattern; CPU numbers are optimistic.
 

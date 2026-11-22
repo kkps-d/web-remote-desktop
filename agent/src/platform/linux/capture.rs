@@ -16,6 +16,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use tracing::{debug, warn};
 
+use super::gpu::{DisplayGpu, find_capture_gpu};
 use crate::config::CaptureConfig;
 use crate::stream_settings::Resolution;
 
@@ -160,6 +161,10 @@ impl Capture {
             CaptureSource::Portal(portal) => portal.monitor.size,
             CaptureSource::PipeWireNode(config) => Some(config.resolution()),
         }
+    }
+
+    pub fn gpu(&self) -> Option<DisplayGpu> {
+        find_capture_gpu(matches!(&self.0, CaptureSource::Portal(_)))
     }
 }
 

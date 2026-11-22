@@ -14,7 +14,7 @@ use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
-use crate::encoders::EncoderCatalog;
+use crate::encoders::EncoderInventory;
 use crate::viewer_sessions::ViewerSessions;
 
 #[tokio::main]
@@ -44,8 +44,7 @@ async fn main() {
         std::process::exit(1);
     }
     platform::use_physical_pixels();
-    // Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
-    let sessions = match EncoderCatalog::detect() {
+    let sessions = match EncoderInventory::discover() {
         Ok(encoders) => ViewerSessions::new(encoders, config.stream, config.capture),
         Err(message) => {
             eprintln!("{message}");

@@ -1,17 +1,20 @@
-//! The H.264 encoders from docs/ENCODERS.md and which of them work on this machine. GPU
-//! encoders count only on the GPU that drives the captured display; any other GPU would need a
-//! copy between GPUs for every frame.
+//! Discovers H.264 encoder factories and selects the ones the capture can use.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use regex::Regex;
 use serde::Serialize;
+#[cfg(target_os = "linux")]
+use tracing::debug;
 use tracing::info;
 
 use crate::platform::{self, EncoderDefinition};
-use crate::stream_settings::SizeLimits;
+use crate::stream_settings::{SizeLimits, StreamConfig};
+#[cfg(target_os = "linux")]
+use crate::{pipeline::probe_encoder, stream_settings::initial_size};
 
 /// An encoder the viewer can pick, and why it can't be used if it isn't available.
 #[derive(Debug, Clone, Serialize)]
@@ -34,38 +37,152 @@ pub struct EncoderCatalog {
     default: &'static str,
 }
 
-impl EncoderCatalog {
-    /// Finds the installed encoders that run on the display's GPU, or on the CPU.
-    pub fn detect() -> Result<Self, String> {
-        let display = platform::find_display_gpu();
+struct EncoderCandidates {
+    definition: &'static EncoderDefinition,
+    factories: Vec<gst::ElementFactory>,
+}
+
+pub struct EncoderInventory {
+    #[cfg(windows)]
+    catalog: Arc<EncoderCatalog>,
+    #[cfg(target_os = "linux")]
+    candidates: Vec<EncoderCandidates>,
+}
+
+impl EncoderInventory {
+    /// Reads the GStreamer registry once at startup.
+    pub fn discover() -> Result<Self, String> {
+        #[cfg(windows)]
+        let gpu = platform::find_display_gpu();
+
         let installed: Vec<gst::ElementFactory> = gst::Registry::get()
             .features(gst::ElementFactory::static_type())
             .into_iter()
             .filter_map(|feature| feature.downcast().ok())
             .collect();
 
-        let mut available = HashMap::new();
-        let mut options = Vec::new();
+        let mut candidates = Vec::new();
         for definition in platform::ENCODERS {
             let pattern = Regex::new(definition.factory_pattern).unwrap();
-            let mut candidates: Vec<_> = installed
+            let mut factories: Vec<_> = installed
                 .iter()
                 .filter(|factory| {
                     pattern.is_match(&factory.name()) && is_hardware(factory) == definition.on_gpu
                 })
+                .cloned()
                 .collect();
             // The unsuffixed factory (the first adapter) before the deviceN ones.
-            candidates.sort_by_key(|factory| (factory.name().len(), factory.name()));
-            let found = if definition.on_gpu {
-                display.as_ref().and_then(|display| {
-                    candidates
-                        .iter()
-                        .find(|factory| platform::runs_on(factory, display))
-                })
-            } else {
-                candidates.first()
-            };
+            factories.sort_by_key(|factory| (factory.name().len(), factory.name()));
+            candidates.push(EncoderCandidates {
+                definition,
+                factories,
+            });
+        }
 
+        #[cfg(windows)]
+        {
+            let catalog = EncoderCatalog::select(&candidates, gpu.as_ref(), |_, _, _| Ok(()))?;
+            Ok(Self {
+                catalog: Arc::new(catalog),
+            })
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            if !candidates
+                .iter()
+                .any(|group| !group.definition.on_gpu && !group.factories.is_empty())
+            {
+                return Err(
+                    "No x264 encoder is available. Install the GStreamer x264 plugin.".into(),
+                );
+            }
+            let installed = candidates
+                .iter()
+                .flat_map(|group| {
+                    group
+                        .factories
+                        .iter()
+                        .map(|factory| factory.name().to_string())
+                })
+                .collect::<Vec<_>>();
+            info!(
+                "Installed H.264 encoder factories: {}",
+                installed.join(", ")
+            );
+            Ok(Self { candidates })
+        }
+    }
+
+    #[cfg(windows)]
+    pub fn for_capture(
+        &self,
+        _: &platform::Capture,
+        _: &StreamConfig,
+    ) -> Result<Arc<EncoderCatalog>, String> {
+        Ok(self.catalog.clone())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn for_capture(
+        &self,
+        capture: &platform::Capture,
+        config: &StreamConfig,
+    ) -> Result<Arc<EncoderCatalog>, String> {
+        let gpu = capture.gpu();
+        EncoderCatalog::select(
+            &self.candidates,
+            gpu.as_ref(),
+            |definition, factory, limits| {
+                let source = capture
+                    .size()
+                    .ok_or("Couldn't verify the encoder because the capture size is unknown")?;
+                let size = initial_size(limits, config.max_size(), Some(source)).unwrap_or(source);
+                let description =
+                    (definition.describe)(factory.name().as_str(), config.default_bitrate_kbps);
+                probe_encoder(&description, size, config.default_fps).map_err(|error| {
+                debug!(factory = %factory.name(), %error, "Hardware encoder startup check failed");
+                "The encoder failed its startup check".into()
+            })
+            },
+        )
+        .map(Arc::new)
+    }
+}
+
+impl EncoderCatalog {
+    fn select(
+        candidates: &[EncoderCandidates],
+        gpu: Option<&platform::DisplayGpu>,
+        verify: impl Fn(&EncoderDefinition, &gst::ElementFactory, SizeLimits) -> Result<(), String>,
+    ) -> Result<Self, String> {
+        Self::select_with(
+            candidates,
+            gpu.map(|gpu| gpu.description.as_str()),
+            |definition, factory, limits| {
+                let gpu = gpu?;
+                platform::runs_on(factory, gpu).then(|| verify(definition, factory, limits))
+            },
+        )
+    }
+
+    // For a hardware factory, a missing check result means it didn't match the capture GPU.
+    fn select_with(
+        candidates: &[EncoderCandidates],
+        gpu: Option<&str>,
+        check: impl Fn(
+            &EncoderDefinition,
+            &gst::ElementFactory,
+            SizeLimits,
+        ) -> Option<Result<(), String>>,
+    ) -> Result<Self, String> {
+        let mut available = HashMap::new();
+        let mut options = Vec::new();
+        for &EncoderCandidates {
+            definition,
+            ref factories,
+        } in candidates
+        {
             // Once NVENC has run, running any Media Foundation encoder (hardware or software)
             // makes every later NVENC session in this process fail with
             // NV_ENC_ERR_INVALID_VERSION, so they're only offered when NVENC isn't.
@@ -77,25 +194,41 @@ impl EncoderCatalog {
                 continue;
             }
 
-            let reason = match (found, &display) {
-                (Some(factory), _) => {
-                    available.insert(
-                        definition.id,
-                        Available {
-                            factory: factory.name().to_string(),
-                            limits: size_limits(factory),
-                        },
-                    );
-                    None
+            if factories.is_empty() {
+                options.push(option(definition, Some("Not installed".into())));
+                continue;
+            }
+            let mut failure = None;
+            for factory in factories {
+                let limits = size_limits(factory);
+                if definition.on_gpu {
+                    match check(definition, factory, limits) {
+                        Some(Ok(())) => (),
+                        Some(Err(reason)) => {
+                            failure = Some(reason);
+                            continue;
+                        }
+                        None => continue,
+                    }
                 }
-                (None, _) if candidates.is_empty() => Some("Not installed".into()),
-                (None, None) => Some("Couldn't find the display's GPU".into()),
-                (None, Some(display)) => Some(format!(
-                    "Not on this display's GPU ({})",
-                    display.description
-                )),
-            };
-            options.push(option(definition, reason));
+                available.insert(
+                    definition.id,
+                    Available {
+                        factory: factory.name().to_string(),
+                        limits,
+                    },
+                );
+                break;
+            }
+            if available.contains_key(definition.id) {
+                options.push(option(definition, None));
+            } else {
+                let reason = failure.unwrap_or_else(|| match gpu {
+                    Some(gpu) => format!("No encoder matched the capture GPU ({gpu})"),
+                    None => "Couldn't identify the capture GPU".into(),
+                });
+                options.push(option(definition, Some(reason)));
+            }
         }
 
         let default = options
@@ -115,9 +248,8 @@ impl EncoderCatalog {
                 ))
             })
             .collect();
-        // Named apart from `display`, which tracing's macros read as a keyword.
-        let gpu = display.as_ref().map_or("unknown", |gpu| &gpu.description);
-        info!("Display GPU: {gpu}. Encoders: {}", found.join(", "));
+        let gpu = gpu.unwrap_or("unknown");
+        info!("Capture GPU: {gpu}. Encoders: {}", found.join(", "));
         Ok(Self {
             available,
             options,
@@ -194,5 +326,71 @@ fn size_limits(factory: &gst::ElementFactory) -> SizeLimits {
         max_width,
         min_height,
         max_height,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    fn candidates() -> Vec<EncoderCandidates> {
+        gst::init().unwrap();
+        let factory = gst::ElementFactory::find("fakesink").unwrap();
+        platform::ENCODERS
+            .iter()
+            .map(|definition| EncoderCandidates {
+                definition,
+                factories: vec![factory.clone()],
+            })
+            .collect()
+    }
+
+    #[test]
+    fn prefers_nvenc_when_both_hardware_encoders_pass() {
+        let catalog =
+            EncoderCatalog::select_with(&candidates(), Some("gpu"), |_, _, _| Some(Ok(())))
+                .unwrap();
+        assert_eq!(catalog.default(), "nvenc");
+        assert!(catalog.is_available("va"));
+        assert!(catalog.is_available("x264"));
+    }
+
+    #[test]
+    fn tries_va_after_nvenc_fails_and_uses_x264_when_both_fail() {
+        for va_passes in [true, false] {
+            let catalog =
+                EncoderCatalog::select_with(&candidates(), Some("gpu"), |definition, _, _| {
+                    Some(if definition.id == "va" && va_passes {
+                        Ok(())
+                    } else {
+                        Err("Startup check failed".into())
+                    })
+                })
+                .unwrap();
+            assert_eq!(catalog.default(), if va_passes { "va" } else { "x264" });
+            assert!(!catalog.is_available("nvenc"));
+            assert_eq!(
+                catalog.options()[0].unavailable_reason.as_deref(),
+                Some("Startup check failed")
+            );
+        }
+    }
+
+    #[test]
+    fn explains_unknown_gpu_and_wrong_device() {
+        let candidates = candidates();
+        let unknown = EncoderCatalog::select(&candidates, None, |_, _, _| unreachable!()).unwrap();
+        assert_eq!(unknown.default(), "x264");
+        assert_eq!(
+            unknown.options()[0].unavailable_reason.as_deref(),
+            Some("Couldn't identify the capture GPU")
+        );
+
+        let wrong = EncoderCatalog::select_with(&candidates, Some("gpu"), |_, _, _| None).unwrap();
+        assert_eq!(wrong.default(), "x264");
+        assert_eq!(
+            wrong.options()[0].unavailable_reason.as_deref(),
+            Some("No encoder matched the capture GPU (gpu)")
+        );
     }
 }

@@ -95,13 +95,13 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 - **Consent:** the first stream shows GNOME's share dialog. The offer waits up to 60 s for an answer, then fails and closes the dialog. A restore token in `~/.local/state/web-remote-desktop/screencast-restore-token` skips the dialog later, also after restarts. Delete the file to choose again.
 - **Static screens:** GNOME sends frames only when the screen changes. `keepalive-time=100` resends the last one, and `videorate` caps the variable rate at the chosen frame rate.
 - **Settings changes:** `pipewiresrc` answers a reconfigure event by reconnecting, after which GNOME sends no frames. `Capture::attach` drops reconfigure events before they reach it; the elements after it handle every change.
-- **Encoders:** x264, VA and NVENC are listed; VA and NVENC stay unavailable until `find_display_gpu` is ported. VA elements register per render node (`vah264enc`, `varenderD129h264enc`, …).
+- **Encoders:** After capture opens, the agent matches NVENC and VA-API to the capture GPU and checks that each can produce baseline H.264 at its starting settings. The session defaults to NVENC, then VA-API, then x264. See [Linux encoders](ENCODERS.md#linux).
 
 ## Stream settings
 
 - The client's toolbar picks resolution (native or smaller, same aspect ratio), frame rate (15, 30, 60 or 120 fps), bitrate and encoder. Defaults: native resolution, 30 fps, 8 Mbps.
 - Options above the agent's limits are left out, and saved settings are lowered to them. Changes above the limits are rejected with a 400.
-- Encoders the agent can't use are greyed out with the reason. GPU encoders count only on the GPU driving the captured display (found with the GStreamer device monitor); others would copy every frame between GPUs.
+- Encoders the agent can't use are greyed out with the reason. Windows uses the primary monitor's GPU. Linux uses the GNOME compositor's render GPU or the sole GPU the DRM inventory identifies.
 - Each encoder's size limits come from its sink pad template (NVENC, AMF and D3D12: 4096 px at most). A change outside them is rejected with a 400 before the pipeline changes. A display larger than the default encoder accepts starts scaled down to fit.
 - Encode time in stats measures encoder input-to-output latency, including internal queueing.
 

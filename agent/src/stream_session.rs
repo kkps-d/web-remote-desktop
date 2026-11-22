@@ -19,7 +19,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::CaptureConfig;
 use crate::encode_timing::{EncodeTiming, EncodingStats};
-use crate::encoders::EncoderCatalog;
+use crate::encoders::{EncoderCatalog, EncoderInventory, EncoderOption};
 use crate::input::InputChannel;
 use crate::pipeline::{EncoderBin, by_name, caps_size, pipeline_description, static_pad};
 use crate::platform;
@@ -117,6 +117,7 @@ pub struct StreamSession {
     capture_src: gst::Pad,
     output_src: gst::Pad,
     parse_sink: gst::Pad,
+    encoders: Arc<EncoderCatalog>,
     encoder: Mutex<EncoderBin>,
     encode_timing: Arc<EncodeTiming>,
     settings: Mutex<StreamSettings>,
@@ -142,7 +143,7 @@ impl StreamSession {
     pub fn start(
         offer_sdp: &str,
         codec: &H264Codec,
-        encoders: &EncoderCatalog,
+        inventory: &EncoderInventory,
         config: &StreamConfig,
         capture_config: Option<&CaptureConfig>,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
@@ -151,6 +152,7 @@ impl StreamSession {
         let (opus_payload_type, audio_unavailable) =
             audio_settings(find_opus_payload_type(offer_sdp), video_only);
         let capture = platform::Capture::open(capture_config).map_err(failed)?;
+        let encoders = inventory.for_capture(&capture, config).map_err(failed)?;
         let encoder = encoders.default();
         let size = initial_size(encoders.limits(encoder), config.max_size(), capture.size());
         let description = pipeline_description(
@@ -168,7 +170,8 @@ impl StreamSession {
         let output_src = static_pad(&by_name(&pipeline, "output")?, "src")?;
         let parse_sink = static_pad(&by_name(&pipeline, "parse")?, "sink")?;
 
-        let encoder_bin = EncoderBin::create(encoders, encoder, config.default_bitrate_kbps)?;
+        let encoder_bin =
+            EncoderBin::create(&encoders.describe(encoder, config.default_bitrate_kbps))?;
         pipeline.add(&encoder_bin.bin).map_err(failed)?;
         if !encoder_bin.link(&output_src, &parse_sink) {
             return Err(failed(format!("Could not link the {encoder} encoder.")));
@@ -195,6 +198,7 @@ impl StreamSession {
             capture_src,
             output_src,
             parse_sink,
+            encoders,
             encoder: Mutex::new(encoder_bin),
             encode_timing,
             pipeline,
@@ -257,6 +261,10 @@ impl StreamSession {
         self.settings.lock().unwrap().clone()
     }
 
+    pub fn encoder_options(&self) -> &[EncoderOption] {
+        self.encoders.options()
+    }
+
     /// The captured desktop's resolution.
     pub fn source_resolution(&self) -> Resolution {
         caps_size(&self.capture_src)
@@ -275,7 +283,6 @@ impl StreamSession {
     pub fn update(
         self: &Arc<Self>,
         update: &StreamSettingsUpdate,
-        encoders: &EncoderCatalog,
         config: &StreamConfig,
     ) -> Result<(), UpdateError> {
         let _updating = self.updating.lock().unwrap();
@@ -285,6 +292,7 @@ impl StreamSession {
             return Err(UpdateError::Stopped);
         }
         let current = self.settings();
+        let encoders = &self.encoders;
         let plan = plan_update(
             &current,
             update,
@@ -301,7 +309,7 @@ impl StreamSession {
 
         // A new encoder starts with the new bitrate. The others pick it up on their next frame.
         if plan.switch_encoder_first {
-            self.swap_encoder(encoders, &next.encoder, next.bitrate_kbps)?;
+            self.swap_encoder(&next.encoder, next.bitrate_kbps)?;
         }
         if next.framerate != current.framerate {
             self.capture.set_framerate(&self.pipeline, next.framerate)?;
@@ -312,7 +320,7 @@ impl StreamSession {
             by_name(&self.pipeline, "output")?.set_property("caps", &caps);
         }
         if encoder_changed && !plan.switch_encoder_first {
-            self.swap_encoder(encoders, &next.encoder, next.bitrate_kbps)?;
+            self.swap_encoder(&next.encoder, next.bitrate_kbps)?;
         } else if !encoder_changed && next.bitrate_kbps != current.bitrate_kbps {
             let encoder = &self.encoder.lock().unwrap().encoder;
             encoder.set_property("bitrate", next.bitrate_kbps as u32);
@@ -326,13 +334,10 @@ impl StreamSession {
     // Swaps the encoder bin while streaming. Blocking the capsfilter's output holds the next
     // frame while the bins are exchanged; the new encoder starts with a keyframe, and rtph264pay
     // sends SPS/PPS with it, so the browser keeps decoding without renegotiating.
-    fn swap_encoder(
-        self: &Arc<Self>,
-        encoders: &EncoderCatalog,
-        encoder: &str,
-        bitrate_kbps: i32,
-    ) -> Result<(), UpdateError> {
-        let next = Mutex::new(Some(EncoderBin::create(encoders, encoder, bitrate_kbps)?));
+    fn swap_encoder(self: &Arc<Self>, encoder: &str, bitrate_kbps: i32) -> Result<(), UpdateError> {
+        let next = Mutex::new(Some(EncoderBin::create(
+            &self.encoders.describe(encoder, bitrate_kbps),
+        )?));
         let (sender, swapped) = mpsc::sync_channel(1);
         // Weak, so a probe that never fires doesn't keep the session alive.
         let session = Arc::downgrade(self);

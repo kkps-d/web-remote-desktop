@@ -7,7 +7,7 @@ use tracing::info;
 
 use crate::config::CaptureConfig;
 use crate::encode_timing::EncodingStats;
-use crate::encoders::{EncoderCatalog, EncoderOption};
+use crate::encoders::{EncoderInventory, EncoderOption};
 use crate::sdp;
 use crate::stream_session::{StartError, StreamSession, UpdateError};
 use crate::stream_settings::{Resolution, StreamConfig, StreamSettings, StreamSettingsUpdate};
@@ -35,7 +35,7 @@ pub struct StreamLimits {
 }
 
 pub struct ViewerSessions {
-    encoders: EncoderCatalog,
+    encoders: EncoderInventory,
     config: StreamConfig,
     capture: Option<CaptureConfig>,
     // Serializes setup so only one pipeline captures the desktop at a time. Setup blocks for
@@ -46,7 +46,7 @@ pub struct ViewerSessions {
 
 impl ViewerSessions {
     pub fn new(
-        encoders: EncoderCatalog,
+        encoders: EncoderInventory,
         config: StreamConfig,
         capture: Option<CaptureConfig>,
     ) -> Arc<Self> {
@@ -128,7 +128,7 @@ impl ViewerSessions {
         // The lock isn't held while updating: a failed encoder switch ends the session, and
         // ending takes the lock to stop it. The Arc keeps the session valid meanwhile.
         let session = self.find(id)?;
-        let updated = session.update(update, &self.encoders, &self.config);
+        let updated = session.update(update, &self.config);
         Some(updated.map(|()| self.info_of(&session)))
     }
 
@@ -145,7 +145,7 @@ impl ViewerSessions {
         StreamInfo {
             source,
             settings: session.settings(),
-            encoders: self.encoders.options().to_vec(),
+            encoders: session.encoder_options().to_vec(),
             limits: StreamLimits {
                 resolution: self.config.largest_size(source),
                 framerate: self.config.max_fps,

@@ -12,7 +12,7 @@ A simple remote desktop app: a web client that connects to an agent running on t
 - [Roadmap](docs/ROADMAP.md): milestones, planned work and open questions
 - [Known issues](docs/KNOWN_ISSUES.md): current limitations and workarounds
 - [Linux development](docs/LINUX_DEV.md): the Linux VM setup
-- [Encoders](docs/ENCODERS.md): Windows encoder picks and benchmarks
+- [Encoders](docs/ENCODERS.md): Linux and Windows encoder selection and benchmarks
 - [Spikes](docs/spikes/): measurements from the data channel and audio spikes
 - [Design guidelines](docs/DESIGN_GUIDELINES.md): coding rules for the client and agent
 

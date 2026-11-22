@@ -9,7 +9,7 @@ Each issue is tagged with the platform it affects.
 - **Named PipeWire capture is video-only** (Linux). Audio and remote input are unavailable in this mode.
 - **The stream cursor can't be hidden** (Linux). The ScreenCast portal fixes the cursor mode per session, so the cursor is always embedded.
 - **One monitor only** (Linux). Absolute and touch coordinates cover the whole desktop, which matches the stream only with one monitor.
-- **GPU encoders are unavailable** (Linux). VA and NVENC are listed but stay unavailable until `find_display_gpu` is ported. x264 encodes on the CPU.
+- **Named PipeWire capture uses x264 on multi-GPU Linux systems.** Gamescope does not report its render GPU through PipeWire. Portal capture uses the GNOME compositor's render GPU when it is available.
 
 ## Audio
 

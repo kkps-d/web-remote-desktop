@@ -27,3 +27,7 @@ ashpd = { version = "0.14", default-features = false, features = ["async-io", "s
 evdev = "0.13"
 futures-channel = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+libloading = "0.9"
+rustix = { version = "1", features = ["event", "fs", "net"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }

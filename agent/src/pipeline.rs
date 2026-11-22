@@ -4,7 +4,6 @@
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-use crate::encoders::EncoderCatalog;
 use crate::platform;
 use crate::sdp::H264Codec;
 use crate::stream_settings::Resolution;
@@ -19,13 +18,8 @@ pub struct EncoderBin {
 }
 
 impl EncoderBin {
-    pub fn create(
-        encoders: &EncoderCatalog,
-        encoder: &str,
-        bitrate_kbps: i32,
-    ) -> Result<Self, String> {
-        let description = encoders.describe(encoder, bitrate_kbps);
-        let bin = gst::parse::bin_from_description(&description, true)
+    pub fn create(description: &str) -> Result<Self, String> {
+        let bin = gst::parse::bin_from_description(description, true)
             .map_err(|error| error.to_string())?;
         Ok(Self {
             sink: static_pad(&bin, "sink")?,
@@ -39,6 +33,53 @@ impl EncoderBin {
     // unlinked.
     pub fn link(&self, output_src: &gst::Pad, parse_sink: &gst::Pad) -> bool {
         output_src.link(&self.sink).is_ok() && self.src.link(parse_sink).is_ok()
+    }
+}
+
+const H264_BASELINE_CAPS: &str = "video/x-h264,profile=(string){constrained-baseline,baseline}";
+
+#[cfg(target_os = "linux")]
+pub fn probe_encoder(encoder: &str, size: Resolution, framerate: i32) -> Result<(), String> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let caps = platform::output_caps(Some(size), framerate);
+    let pipeline = gst::parse::launch(&format!(
+        "videotestsrc num-buffers=4 ! {caps},framerate={framerate}/1 ! {encoder} ! \
+         h264parse ! {H264_BASELINE_CAPS} ! fakesink name=probe_sink sync=false"
+    ))
+    .map_err(|error| error.to_string())?
+    .downcast::<gst::Pipeline>()
+    .map_err(|_| "Invalid encoder probe pipeline")?;
+    let received = Arc::new(AtomicBool::new(false));
+    let saw_buffer = received.clone();
+    static_pad(&by_name(&pipeline, "probe_sink")?, "sink")?.add_probe(
+        gst::PadProbeType::BUFFER,
+        move |_, _| {
+            saw_buffer.store(true, Ordering::Relaxed);
+            gst::PadProbeReturn::Remove
+        },
+    );
+    let bus = pipeline
+        .bus()
+        .ok_or("No bus on the encoder probe pipeline")?;
+    let started = pipeline.set_state(gst::State::Playing).is_ok();
+    let timeout = if started {
+        gst::ClockTime::from_seconds(2)
+    } else {
+        gst::ClockTime::ZERO
+    };
+    let message =
+        bus.timed_pop_filtered(timeout, &[gst::MessageType::Eos, gst::MessageType::Error]);
+    let stopped = pipeline.set_state(gst::State::Null);
+    match message.as_ref().map(|message| message.view()) {
+        Some(gst::MessageView::Error(error)) => Err(error.error().to_string()),
+        Some(gst::MessageView::Eos(_)) if received.load(Ordering::Relaxed) => {
+            stopped.map(|_| ()).map_err(|error| error.to_string())
+        }
+        Some(gst::MessageView::Eos(_)) => Err("The encoder produced no H.264 frames".into()),
+        _ if !started => Err("The encoder probe could not start".into()),
+        _ => Err("The encoder probe timed out".into()),
     }
 }
 
@@ -60,7 +101,7 @@ pub fn pipeline_description(
     });
     format!(
         "{capture} ! capsfilter name=output caps={caps}  \
-         h264parse name=parse ! video/x-h264,profile=(string){{constrained-baseline,baseline}} ! \
+         h264parse name=parse ! {H264_BASELINE_CAPS} ! \
          rtph264pay pt={payload_type} config-interval=-1 aggregate-mode=zero-latency ! \
          capssetter caps=\"application/x-rtp,profile-level-id=(string){profile_level_id}\" ! \
          webrtcbin name=webrtc bundle-policy=max-bundle{audio}",
@@ -104,6 +145,21 @@ pub fn static_pad(element: &impl IsA<gst::Element>, name: &str) -> Result<gst::P
     element
         .static_pad(name)
         .ok_or_else(|| format!("Pad {name} not found."))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+#[ignore = "requires the GStreamer x264 and H.264 parser runtime plugins"]
+fn encoder_probe_requires_baseline_h264_output() {
+    gst::init().unwrap();
+    let size = Resolution {
+        width: 320,
+        height: 240,
+    };
+    let description = "x264enc tune=zerolatency speed-preset=ultrafast bitrate=1000";
+    probe_encoder(description, size, 30).unwrap();
+    let drops_input = format!("valve drop=true drop-mode=transform-to-gap ! {description}");
+    assert!(probe_encoder(&drops_input, size, 30).is_err());
 }
 
 // The expected strings are the Windows capture and its D3D11 caps.

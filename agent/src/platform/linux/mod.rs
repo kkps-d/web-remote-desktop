@@ -2,11 +2,14 @@
 //! portal through PipeWire, the audio from PipeWire, and input goes in through uinput.
 
 mod capture;
+mod gpu;
 mod input;
 mod key_codes;
 mod touch;
+mod wayland_gpu;
 
 pub use capture::Capture;
+pub use gpu::{DisplayGpu, runs_on};
 pub use input::InputInjector;
 pub use touch::TouchInjector;
 
@@ -68,19 +71,15 @@ pub fn output_caps(size: Option<Resolution>, _framerate: i32) -> String {
     format!("video/x-raw,format=NV12{size}")
 }
 
-// Each describes the encoder segment between the capture's NV12 output in system memory and
-// h264parse, as on Windows. In priority order: the first available one is the default. The GPU
-// encoders aren't offered until the display's GPU can be found, and are untested.
+// These encode the capture's NV12 output in system memory. The first available one is the default.
 pub static ENCODERS: &[EncoderDefinition] = &[
     EncoderDefinition {
-        id: "x264",
-        label: "x264 (CPU)",
-        factory_pattern: "^x264enc$",
-        on_gpu: false,
+        id: "nvenc",
+        label: "NVIDIA NVENC",
+        factory_pattern: r"^nvh264(device\d+)?enc$",
+        on_gpu: true,
         describe: |factory, kbps| {
-            format!(
-                "{factory} name=encoder tune=zerolatency speed-preset=ultrafast key-int-max=60 bitrate={kbps}"
-            )
+            format!("{factory} name=encoder zerolatency=true bframes=0 gop-size=60 bitrate={kbps}")
         },
     },
     EncoderDefinition {
@@ -95,30 +94,17 @@ pub static ENCODERS: &[EncoderDefinition] = &[
         },
     },
     EncoderDefinition {
-        id: "nvenc",
-        label: "NVIDIA NVENC",
-        factory_pattern: "^nvh264enc$",
-        on_gpu: true,
+        id: "x264",
+        label: "x264 (CPU)",
+        factory_pattern: "^x264enc$",
+        on_gpu: false,
         describe: |factory, kbps| {
-            format!("{factory} name=encoder zerolatency=true bframes=0 gop-size=60 bitrate={kbps}")
+            format!(
+                "{factory} name=encoder tune=zerolatency speed-preset=ultrafast key-int-max=60 bitrate={kbps}"
+            )
         },
     },
 ];
-
-/// The GPU that drives the captured display.
-pub struct DisplayGpu {
-    pub description: String,
-}
-
-// Not ported yet: VA elements register per render node (vah264enc, varenderD129h264enc, …),
-// which would need matching to the display's GPU.
-pub fn find_display_gpu() -> Option<DisplayGpu> {
-    None
-}
-
-pub fn runs_on(_factory: &gst::ElementFactory, _gpu: &DisplayGpu) -> bool {
-    false
-}
 
 /// Nothing to do: the portal stream and its size are already in physical pixels.
 pub fn use_physical_pixels() {}
