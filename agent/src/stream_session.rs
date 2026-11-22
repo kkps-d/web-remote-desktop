@@ -17,6 +17,7 @@ use gstreamer_webrtc::{
 };
 use tracing::{debug, error, info, warn};
 
+use crate::config::CaptureConfig;
 use crate::encode_timing::{EncodeTiming, EncodingStats};
 use crate::encoders::EncoderCatalog;
 use crate::input::InputChannel;
@@ -80,6 +81,35 @@ impl From<String> for UpdateError {
     }
 }
 
+fn audio_settings(opus: Option<u32>, video_only: bool) -> (Option<u32>, Option<String>) {
+    if video_only {
+        return (
+            None,
+            Some("Named PipeWire capture streams video only".into()),
+        );
+    }
+    let Some(opus) = opus else {
+        return (None, Some("The viewer didn't ask for Opus audio".into()));
+    };
+    if let Some(reason) = platform::audio_unavailable() {
+        warn!("Streaming without audio: {reason}.");
+        return (None, Some(reason.into()));
+    }
+    (Some(opus), None)
+}
+
+#[cfg(test)]
+#[test]
+fn named_capture_declines_audio_even_when_the_viewer_offers_it() {
+    assert_eq!(
+        audio_settings(Some(111), true),
+        (
+            None,
+            Some("Named PipeWire capture streams video only".into())
+        )
+    );
+}
+
 pub struct StreamSession {
     id: String,
     pipeline: gst::Pipeline,
@@ -97,10 +127,10 @@ pub struct StreamSession {
     stopped: AtomicBool,
     // Dropping the sender stops the connection monitor.
     stop_monitor: Mutex<Option<mpsc::Sender<()>>>,
-    input: Arc<InputChannel>,
+    input: Option<Arc<InputChannel>>,
     // Why the stream has no audio, or None if it has.
     audio_unavailable: Option<String>,
-    // Held for the stream, and sets its frame rate; on Linux it is the portal session. Drop stops
+    // Held for the stream and sets its frame rate. Drop stops
     // the pipeline before the fields drop, so the capture outlives it.
     capture: platform::Capture,
 }
@@ -114,20 +144,13 @@ impl StreamSession {
         codec: &H264Codec,
         encoders: &EncoderCatalog,
         config: &StreamConfig,
+        capture_config: Option<&CaptureConfig>,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
-        let mut opus_payload_type = find_opus_payload_type(offer_sdp);
-        let mut audio_unavailable = opus_payload_type
-            .is_none()
-            .then(|| "The viewer didn't ask for Opus audio".to_owned());
-        if opus_payload_type.is_some()
-            && let Some(reason) = platform::audio_unavailable()
-        {
-            warn!("Streaming without audio: {reason}.");
-            opus_payload_type = None;
-            audio_unavailable = Some(reason.to_owned());
-        }
-        let capture = platform::Capture::open().map_err(failed)?;
+        let video_only = capture_config.is_some();
+        let (opus_payload_type, audio_unavailable) =
+            audio_settings(find_opus_payload_type(offer_sdp), video_only);
+        let capture = platform::Capture::open(capture_config).map_err(failed)?;
         let encoder = encoders.default();
         let size = initial_size(encoders.limits(encoder), config.max_size(), capture.size());
         let description = pipeline_description(
@@ -158,8 +181,10 @@ impl StreamSession {
         capture.attach(&capture_element);
         let capture_src = static_pad(&capture_element, "src")?;
         // The viewer hides the stream cursor while it shows its own (absolute pointer mode).
-        let input = InputChannel::connect(&webrtc, &id, move |visible| {
-            platform::show_cursor(&capture_element, visible);
+        let input = (!video_only).then(|| {
+            InputChannel::connect(&webrtc, &id, move |visible| {
+                platform::show_cursor(&capture_element, visible);
+            })
         });
 
         let session = Arc::new(Self {
@@ -187,20 +212,30 @@ impl StreamSession {
             stopped: AtomicBool::new(false),
             stop_monitor: Mutex::new(None),
         });
-        match session.begin(offer_sdp) {
+        match session.begin(offer_sdp, capture_config.map(CaptureConfig::resolution)) {
             Ok(answer) => Ok((session, answer)),
             Err(error) => {
                 session.stop();
-                Err(error)
+                match (capture_config, error) {
+                    (Some(config), StartError::Failed(message)) => Err(failed(format!(
+                        "PipeWire node \"{}\": {message}",
+                        config.pipewire_node
+                    ))),
+                    (_, error) => Err(error),
+                }
             }
         }
     }
 
-    fn begin(self: &Arc<Self>, offer_sdp: &str) -> Result<String, StartError> {
+    fn begin(
+        self: &Arc<Self>,
+        offer_sdp: &str,
+        expected_source: Option<Resolution>,
+    ) -> Result<String, StartError> {
         self.watch_bus();
         // A failure posts an error on the bus, which the waits in answer() report.
         let _ = self.pipeline.set_state(gst::State::Playing);
-        let answer = self.answer(offer_sdp)?;
+        let answer = self.answer(offer_sdp, expected_source)?;
 
         // answer() waits for the first frame, so the output caps are known by now.
         let size = caps_size(&self.output_src);
@@ -358,10 +393,16 @@ impl StreamSession {
         }
         self.stop_monitor.lock().unwrap().take();
         let _ = self.pipeline.set_state(gst::State::Null);
-        self.input.release_all();
+        if let Some(input) = &self.input {
+            input.release_all();
+        }
     }
 
-    fn answer(&self, offer_sdp: &str) -> Result<String, StartError> {
+    fn answer(
+        &self,
+        offer_sdp: &str,
+        expected_source: Option<Resolution>,
+    ) -> Result<String, StartError> {
         // Until the first frame arrives our video pad has no caps, and webrtcbin can't match it
         // to the offer; it would answer with an unrelated, inactive transceiver.
         let video_pad = static_pad(&self.webrtc, "sink_0")?;
@@ -369,6 +410,15 @@ impl StreamSession {
             || video_pad.current_caps().is_some(),
             "No video from the capture pipeline.",
         )?;
+        if let Some(expected) = expected_source {
+            let actual = self.source_resolution();
+            if expected != actual {
+                return Err(failed(format!(
+                    "Expected {}×{} video but received {}×{}.",
+                    expected.width, expected.height, actual.width, actual.height,
+                )));
+            }
+        }
 
         let sdp = gst_sdp::SDPMessage::parse_buffer(offer_sdp.as_bytes())
             .map_err(|_| StartError::InvalidOffer("The offer is not valid SDP.".into()))?;
@@ -490,8 +540,9 @@ impl StreamSession {
             // SCTP carries the input channel; its association fails when the viewer closes the
             // connection. The video keeps going, and the connection monitor ends the session.
             gst::MessageView::Error(_) if source.starts_with("sctp") => {
-                self.input
-                    .closed(&format!("failed: {source} association ended"));
+                if let Some(input) = &self.input {
+                    input.closed(&format!("failed: {source} association ended"));
+                }
                 true
             }
             gst::MessageView::Warning(warning) => {
@@ -511,14 +562,16 @@ impl StreamSession {
                 }
                 true
             }
-            _ => {
+            gst::MessageView::Error(pipeline_error) => {
+                let message = pipeline_error.error();
                 error!(
-                    "Session {} pipeline error from {source}: {details}",
+                    "Session {} pipeline error from {source}: {message} ({details})",
                     self.id
                 );
-                self.end(format!("Pipeline error from {source}: {details}"));
+                self.end(format!("Pipeline error from {source}: {message}"));
                 false
             }
+            _ => true,
         }
     }
 

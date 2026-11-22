@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::stream_settings::StreamConfig;
+use crate::stream_settings::{Resolution, StreamConfig};
 
 pub const DEFAULT_PORT: u16 = 8080;
 const FILE_NAME: &str = "agent.toml";
@@ -21,6 +21,7 @@ pub struct Config {
     pub orchprox: Option<OrchproxConfig>,
     #[serde(default)]
     pub stream: StreamConfig,
+    pub capture: Option<CaptureConfig>,
 }
 
 /// Without a settings file, the agent accepts direct connections on the default port.
@@ -30,6 +31,7 @@ impl Default for Config {
             direct: Some(DirectConfig::default()),
             orchprox: None,
             stream: StreamConfig::default(),
+            capture: None,
         }
     }
 }
@@ -51,6 +53,44 @@ impl Default for DirectConfig {
 pub struct OrchproxConfig {
     /// The orchprox's WebSocket address, e.g. `wss://orchprox.example.com`.
     pub url: String,
+}
+
+/// Opt-in capture of a named video source in the Linux PipeWire session.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptureConfig {
+    pub pipewire_node: String,
+    pub width_px: i32,
+    pub height_px: i32,
+}
+
+impl CaptureConfig {
+    pub fn resolution(&self) -> Resolution {
+        Resolution {
+            width: self.width_px,
+            height: self.height_px,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !cfg!(target_os = "linux") {
+            return Err("[capture] is supported only on Linux.".into());
+        }
+        if self.pipewire_node.trim().is_empty()
+            || self.pipewire_node.trim() != self.pipewire_node
+            || self.pipewire_node.chars().any(char::is_control)
+        {
+            return Err("[capture] pipewire_node must be a non-empty node name.".into());
+        }
+        for (name, value) in [("width_px", self.width_px), ("height_px", self.height_px)] {
+            if value < 64 || value % 2 != 0 {
+                return Err(format!(
+                    "[capture] {name} must be an even number of at least 64 pixels."
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Config {
@@ -106,6 +146,9 @@ impl Config {
                 "The [orchprox] url must start with ws:// or wss://, not {}.",
                 orchprox.url
             ));
+        }
+        if let Some(capture) = &self.capture {
+            capture.validate()?;
         }
         self.stream.validate()
     }
@@ -198,6 +241,7 @@ mod tests {
                     default_bitrate_kbps: 6000,
                     max_bitrate_kbps: 25000,
                 },
+                capture: None,
             }
         );
     }
@@ -214,6 +258,43 @@ mod tests {
         assert_eq!(config.direct, Some(DirectConfig { port: DEFAULT_PORT }));
         assert_eq!(config.orchprox, None);
         assert_eq!(config.stream, StreamConfig::default());
+        assert_eq!(config.capture, None);
+    }
+
+    fn capture(settings: &str) -> Result<Config, String> {
+        parse(&format!("[direct]\n[capture]\n{settings}"))
+    }
+
+    #[test]
+    fn named_capture_is_linux_only() {
+        let config = capture("pipewire_node = \"gamescope\"\nwidth_px = 1280\nheight_px = 720");
+        if cfg!(target_os = "linux") {
+            let capture = config.unwrap().capture.unwrap();
+            assert_eq!(capture.pipewire_node, "gamescope");
+            assert_eq!(
+                capture.resolution(),
+                Resolution {
+                    width: 1280,
+                    height: 720
+                }
+            );
+        } else {
+            assert_eq!(config.unwrap_err(), "[capture] is supported only on Linux.");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn rejects_invalid_named_capture_settings() {
+        for settings in [
+            "pipewire_node = \" \"\nwidth_px = 1280\nheight_px = 720",
+            "pipewire_node = \"gamescope \"\nwidth_px = 1280\nheight_px = 720",
+            "pipewire_node = \"gamescope\"\nwidth_px = 1281\nheight_px = 720",
+            "pipewire_node = \"gamescope\"\nwidth_px = 1280\nheight_px = 32",
+            "pipewire_node = \"gamescope\"\nwidth_px = 1280",
+        ] {
+            assert!(capture(settings).is_err(), "{settings}");
+        }
     }
 
     #[test]

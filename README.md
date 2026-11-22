@@ -64,6 +64,9 @@ cargo run --release --manifest-path agent/Cargo.toml
 
 The first viewer brings up GNOME's screen sharing dialog on the Linux desktop. After you allow it, later viewers and restarts skip the dialog.
 
+For a video-only gamescope session, set `[capture]` in the agent config and run
+the agent in the compositor's PipeWire session. See the [example config](agent/agent.example.toml).
+
 #### Options
 
 | Option | How |

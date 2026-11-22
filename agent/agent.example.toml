@@ -10,6 +10,13 @@ port = 8080 # --port overrides this, and turns direct connections on
 # [orchprox]
 # url = "wss://orchprox.example.com"
 
+# Linux only. Use a named BGRx PipeWire video source such as gamescope.
+# The dimensions describe the source. This mode streams video only.
+# [capture]
+# pipewire_node = "gamescope"
+# width_px = 1280
+# height_px = 720
+
 # Leave out any setting to use its default.
 [stream]
 max_res_w_px = 1920        # Bounding box for the stream; default: the display's resolution

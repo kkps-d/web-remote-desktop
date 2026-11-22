@@ -6,6 +6,7 @@ Each issue is tagged with the platform it affects.
 
 - **Framerate can exceed the selected rate** (Windows). At 120 fps, the Android overlay reached 144 fps and the agent averaged 132 encoded fps over 12 seconds. The agent sets the requested rate in the capture caps and relies on the capture source for pacing. A fresh session held near 120 fps, so the trigger is still unknown.
 - **NVENC bitrate can exceed the selected rate** (Windows). At 8 Mbps, a fullscreen motion test peaked at 14.9 Mbps in the overlay. The setting is an average target for variable bitrate encoding, with the peak left to NVENC. The overlay shows the receive rate over roughly one second.
+- **Named PipeWire capture is video-only** (Linux). Audio and remote input are unavailable in this mode.
 - **The stream cursor can't be hidden** (Linux). The ScreenCast portal fixes the cursor mode per session, so the cursor is always embedded.
 - **One monitor only** (Linux). Absolute and touch coordinates cover the whole desktop, which matches the stream only with one monitor.
 - **GPU encoders are unavailable** (Linux). VA and NVENC are listed but stay unavailable until `find_display_gpu` is ported. x264 encodes on the CPU.

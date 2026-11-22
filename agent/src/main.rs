@@ -46,7 +46,7 @@ async fn main() {
     platform::use_physical_pixels();
     // Detect encoders at startup, so the log shows them and the first viewer doesn't wait.
     let sessions = match EncoderCatalog::detect() {
-        Ok(encoders) => ViewerSessions::new(encoders, config.stream.clone()),
+        Ok(encoders) => ViewerSessions::new(encoders, config.stream, config.capture),
         Err(message) => {
             eprintln!("{message}");
             std::process::exit(1);
@@ -54,6 +54,16 @@ async fn main() {
     };
 
     let shutdown = async {
+        #[cfg(target_os = "linux")]
+        if let Ok(mut terminate) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! {
+                _ = terminate.recv() => {}
+                _ = tokio::signal::ctrl_c() => {}
+            }
+            return;
+        }
         let _ = tokio::signal::ctrl_c().await;
     };
     if let Some(direct) = &config.direct {

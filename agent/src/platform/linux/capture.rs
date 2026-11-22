@@ -1,5 +1,4 @@
-//! Screen capture through the ScreenCast portal: GNOME asks the person at the desktop to share a
-//! monitor, then pipewiresrc streams it.
+//! Screen capture through the ScreenCast portal or a named PipeWire video node.
 
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
@@ -17,6 +16,7 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use tracing::{debug, warn};
 
+use crate::config::CaptureConfig;
 use crate::stream_settings::Resolution;
 
 // GNOME sends frames only when the screen changes; pipewiresrc resends the last one this often
@@ -26,9 +26,16 @@ const KEEPALIVE_MS: u32 = 100;
 // any viewer after it, wait meanwhile.
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// A ScreenCast portal session sharing one monitor, held for as long as the stream runs.
-/// Dropping it ends the session and GNOME's sharing indicator.
-pub struct Capture {
+/// The capture source, held for as long as the stream runs.
+pub struct Capture(CaptureSource);
+
+enum CaptureSource {
+    Portal(PortalCapture),
+    PipeWireNode(CaptureConfig),
+}
+
+/// Dropping the portal capture ends the session and GNOME's sharing indicator.
+struct PortalCapture {
     session: Session<Screencast>,
     monitor: SharedMonitor,
 }
@@ -41,10 +48,25 @@ struct SharedMonitor {
 }
 
 impl Capture {
-    /// Asks the portal to share a monitor. The first time, GNOME shows a dialog on the desktop;
-    /// a saved restore token skips it afterwards. Blocks until the dialog is answered, for up to
-    /// `CONSENT_TIMEOUT`.
-    pub fn open() -> Result<Self, String> {
+    /// Opens a named source or asks the portal to share a monitor. A portal request can block
+    /// for up to `CONSENT_TIMEOUT`.
+    pub fn open(config: Option<&CaptureConfig>) -> Result<Self, String> {
+        if let Some(config) = config {
+            if gst::ElementFactory::find("pipewiresrc").is_none() {
+                return Err(format!(
+                    "Could not capture PipeWire node \"{}\": GStreamer's PipeWire plugin is missing.",
+                    config.pipewire_node
+                ));
+            }
+            if !super::pipewire_socket().is_some_and(|socket| socket.exists()) {
+                return Err(format!(
+                    "Could not capture PipeWire node \"{}\": PipeWire isn't running in this session.",
+                    config.pipewire_node
+                ));
+            }
+            return Ok(Self(CaptureSource::PipeWireNode(config.clone())));
+        }
+
         block_on(async {
             let portal = Screencast::new().await.map_err(open_error)?;
             let session = portal
@@ -61,7 +83,10 @@ impl Capture {
                 }
             };
             match shared {
-                Ok(monitor) => Ok(Self { session, monitor }),
+                Ok(monitor) => Ok(Self(CaptureSource::Portal(PortalCapture {
+                    session,
+                    monitor,
+                }))),
                 // An ashpd Session doesn't close on drop. Closing also dismisses the dialog.
                 Err(error) => {
                     let _ = session.close().await;
@@ -74,12 +99,28 @@ impl Capture {
     /// The capture segment of the pipeline. When the user stops sharing, pipewiresrc posts an
     /// error, which ends the session.
     pub fn description(&self, framerate: i32) -> String {
+        let source = match &self.0 {
+            CaptureSource::Portal(portal) => format!(
+                "fd={} path={}",
+                portal.monitor.remote.as_raw_fd(),
+                portal.monitor.node_id
+            ),
+            CaptureSource::PipeWireNode(_) => concat!(
+                "do-timestamp=true ",
+                "stream-properties=\"props,node.dont-fallback=true,node.dont-reconnect=true\""
+            )
+            .into(),
+        };
+        // Gamescope advertises a variable-rate stream. Fix the source caps so videorate's
+        // downstream frame rate does not produce a fixed-rate request to PipeWire.
+        let source_caps = match &self.0 {
+            CaptureSource::Portal(_) => "",
+            CaptureSource::PipeWireNode(_) => "video/x-raw,format=BGRx,framerate=0/1 ! ",
+        };
         format!(
-            "pipewiresrc fd={fd} path={node} name=capture keepalive-time={KEEPALIVE_MS} \
-             on-disconnect=error ! {processing}",
-            fd = self.monitor.remote.as_raw_fd(),
-            node = self.monitor.node_id,
-            processing = video_processing(framerate),
+            "pipewiresrc {source} name=capture keepalive-time={KEEPALIVE_MS} \
+             on-disconnect=error ! {source_caps}{}",
+            video_processing(framerate),
         )
     }
 
@@ -97,6 +138,9 @@ impl Capture {
     /// needs to renegotiate. The event is dropped on the next element's sink pad, since
     /// arriving on pipewiresrc's pad already flags it for renegotiation.
     pub fn attach(&self, capture: &gst::Element) {
+        if let CaptureSource::PipeWireNode(config) = &self.0 {
+            capture.set_property("target-object", config.pipewire_node.as_str());
+        }
         let Some(next_sink) = capture.static_pad("src").and_then(|src| src.peer()) else {
             return;
         };
@@ -110,13 +154,16 @@ impl Capture {
         });
     }
 
-    /// The shared monitor's size, as the portal reports it.
+    /// The shared monitor's reported size or the configured size of a named node.
     pub fn size(&self) -> Option<Resolution> {
-        self.monitor.size
+        match &self.0 {
+            CaptureSource::Portal(portal) => portal.monitor.size,
+            CaptureSource::PipeWireNode(config) => Some(config.resolution()),
+        }
     }
 }
 
-impl Drop for Capture {
+impl Drop for PortalCapture {
     fn drop(&mut self) {
         if let Err(error) = block_on(self.session.close()) {
             debug!("Could not close the screen cast session: {error}");

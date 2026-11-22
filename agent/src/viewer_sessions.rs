@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde::Serialize;
 use tracing::info;
 
+use crate::config::CaptureConfig;
 use crate::encode_timing::EncodingStats;
 use crate::encoders::{EncoderCatalog, EncoderOption};
 use crate::sdp;
@@ -36,6 +37,7 @@ pub struct StreamLimits {
 pub struct ViewerSessions {
     encoders: EncoderCatalog,
     config: StreamConfig,
+    capture: Option<CaptureConfig>,
     // Serializes setup so only one pipeline captures the desktop at a time. Setup blocks for
     // seconds, so it has its own lock and stopping a session never waits for it.
     setup: Mutex<()>,
@@ -43,10 +45,15 @@ pub struct ViewerSessions {
 }
 
 impl ViewerSessions {
-    pub fn new(encoders: EncoderCatalog, config: StreamConfig) -> Arc<Self> {
+    pub fn new(
+        encoders: EncoderCatalog,
+        config: StreamConfig,
+        capture: Option<CaptureConfig>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             encoders,
             config,
+            capture,
             setup: Mutex::new(()),
             current: Mutex::new(None),
         })
@@ -69,8 +76,14 @@ impl ViewerSessions {
                 sessions.stop(id);
             }
         };
-        let (session, answer) =
-            StreamSession::start(offer_sdp, &codec, &self.encoders, &self.config, on_ended)?;
+        let (session, answer) = StreamSession::start(
+            offer_sdp,
+            &codec,
+            &self.encoders,
+            &self.config,
+            self.capture.as_ref(),
+            on_ended,
+        )?;
 
         let mut current = lock(&self.current);
         // stop() ignores a session that isn't current yet, so catch one that already ended.

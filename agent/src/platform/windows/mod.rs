@@ -19,13 +19,14 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 
 use super::EncoderDefinition;
+use crate::config::CaptureConfig;
 use crate::stream_settings::Resolution;
 
 /// Captures the primary monitor on the GPU, ready for the output capsfilter.
 pub struct Capture;
 
 impl Capture {
-    pub fn open() -> Result<Self, String> {
+    pub fn open(_config: Option<&CaptureConfig>) -> Result<Self, String> {
         Ok(Self)
     }
 
