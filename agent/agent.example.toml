@@ -4,6 +4,7 @@
 # Clients connect straight to this agent. Leave out to turn off.
 [direct]
 port = 8080 # --port overrides this, and turns direct connections on
+# loopback_only = true # Only accept signaling at 127.0.0.1
 
 # The agent connects out to an orchprox. Leave out to turn off.
 # Not implemented yet: the agent only checks the url.

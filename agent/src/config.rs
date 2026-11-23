@@ -40,11 +40,15 @@ impl Default for Config {
 #[serde(default, deny_unknown_fields)]
 pub struct DirectConfig {
     pub port: u16,
+    pub loopback_only: bool,
 }
 
 impl Default for DirectConfig {
     fn default() -> Self {
-        Self { port: DEFAULT_PORT }
+        Self {
+            port: DEFAULT_PORT,
+            loopback_only: false,
+        }
     }
 }
 
@@ -137,7 +141,7 @@ impl Config {
         };
         // --port turns direct connections on, even if the file leaves them off.
         if let Some(port) = args.port {
-            config.direct = Some(DirectConfig { port });
+            config.direct.get_or_insert_with(DirectConfig::default).port = port;
         }
         config.validate()?;
         Ok(config)
@@ -246,6 +250,7 @@ mod tests {
             r#"
             [direct]
             port = 9000
+            loopback_only = true
 
             [orchprox]
             url = "wss://orchprox.example.com"
@@ -263,7 +268,10 @@ mod tests {
         assert_eq!(
             config,
             Config {
-                direct: Some(DirectConfig { port: 9000 }),
+                direct: Some(DirectConfig {
+                    port: 9000,
+                    loopback_only: true
+                }),
                 orchprox: Some(OrchproxConfig {
                     url: "wss://orchprox.example.com".into()
                 }),
@@ -289,7 +297,7 @@ mod tests {
     #[test]
     fn omitted_settings_use_the_defaults() {
         let config = parse("[direct]").unwrap();
-        assert_eq!(config.direct, Some(DirectConfig { port: DEFAULT_PORT }));
+        assert_eq!(config.direct, Some(DirectConfig::default()));
         assert_eq!(config.orchprox, None);
         assert_eq!(config.stream, StreamConfig::default());
         assert_eq!(config.capture, None);

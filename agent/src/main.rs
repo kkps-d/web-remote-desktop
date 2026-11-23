@@ -11,6 +11,9 @@ mod stream_session;
 mod stream_settings;
 mod viewer_sessions;
 
+use std::net::Ipv4Addr;
+
+use tokio::net::TcpListener;
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -68,7 +71,12 @@ async fn main() {
     };
     if let Some(direct) = &config.direct {
         let port = direct.port;
-        let listener = match http::listen_any_ip(port) {
+        let bind = if direct.loopback_only {
+            TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await
+        } else {
+            http::listen_any_ip(port)
+        };
+        let listener = match bind {
             Ok(listener) => listener,
             Err(error) => {
                 eprintln!("Could not listen on port {port}: {error}");

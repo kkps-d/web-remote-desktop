@@ -30,6 +30,7 @@ interface ViewerScreenProps {
   connection?: AgentConnection
   status: "connecting" | "connected" | "reconnecting"
   onDisconnect: () => void
+  useAgentDefaults: boolean
 }
 
 const statusLabels = {
@@ -48,14 +49,20 @@ interface StatsVisibility {
   advanced: boolean
 }
 
-export function ViewerScreen({ address, connection, status, onDisconnect }: ViewerScreenProps) {
+export function ViewerScreen({
+  address,
+  connection,
+  status,
+  onDisconnect,
+  useAgentDefaults,
+}: ViewerScreenProps) {
   const connected = status === "connected"
   const stageRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [statsVisibility, setStatsVisibility] = useStatsVisibility()
   const isFullscreen = useIsFullscreen()
-  const streamSettings = useStreamSettings(connection)
+  const streamSettings = useStreamSettings(connection, useAgentDefaults)
   const [inputSettings, setInputSettings] = useInputSettings()
   const inputUnavailableReason = streamSettings.info?.inputUnavailableReason
   const touchSupported = streamSettings.info?.touchSupported ?? true

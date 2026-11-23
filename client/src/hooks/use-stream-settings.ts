@@ -10,8 +10,11 @@ interface State {
   error?: string
 }
 
-/** Loads a connection's stream info, applies the last saved settings and saves changes. */
-export function useStreamSettings(connection?: AgentConnection) {
+/** Uses the agent defaults for a local launch. Manual connections remember stream preferences. */
+export function useStreamSettings(
+  connection: AgentConnection | undefined,
+  useAgentDefaults: boolean,
+) {
   const [state, setState] = useState<State>()
   const current = state?.connection === connection ? state : undefined
 
@@ -27,7 +30,7 @@ export function useStreamSettings(connection?: AgentConnection) {
         return { error: errorMessage(error) }
       }
 
-      const saved = readStreamSettings()
+      const saved = useAgentDefaults ? undefined : readStreamSettings()
       if (!saved) return { info }
       try {
         return { info: await connection.updateStreamSettings(resolveSavedSettings(saved, info)) }
@@ -51,7 +54,7 @@ export function useStreamSettings(connection?: AgentConnection) {
       cancelled = true
       connection.input.removeEventListener("close", refresh)
     }
-  }, [connection])
+  }, [connection, useAgentDefaults])
 
   const update = useCallback(
     async (change: Partial<StreamSettings>) => {
@@ -59,12 +62,12 @@ export function useStreamSettings(connection?: AgentConnection) {
       try {
         const info = await connection.updateStreamSettings(change)
         setState({ connection, info })
-        saveStreamSettings(info)
+        if (!useAgentDefaults) saveStreamSettings(info)
       } catch (error) {
         setState((previous) => ({ ...previous, connection, error: errorMessage(error) }))
       }
     },
-    [connection],
+    [connection, useAgentDefaults],
   )
 
   return { info: current?.info, error: current?.error, update }

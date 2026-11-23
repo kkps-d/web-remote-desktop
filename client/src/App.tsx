@@ -1,14 +1,31 @@
+import { useEffect, useState } from "react"
+
 import { ConnectScreen } from "@/components/connect-screen"
 import { ViewerScreen } from "@/components/viewer-screen"
 import { useAgentViewer } from "@/hooks/use-agent-viewer"
+import { localAgentFromSearch } from "@/lib/agent-connection"
 
 export default function App() {
   const { state, connect, disconnect } = useAgentViewer()
+  const [launch] = useState(() => localAgentFromSearch(window.location.search))
+  const [useAgentDefaults, setUseAgentDefaults] = useState(Boolean(launch))
+
+  useEffect(() => {
+    if (!launch) return
+    // Defer until after Strict Mode finishes its initial effect cleanup.
+    const timer = window.setTimeout(() => void connect(launch), 0)
+    return () => window.clearTimeout(timer)
+  }, [connect, launch])
+
+  function connectManually(address: string) {
+    setUseAgentDefaults(false)
+    return connect(address)
+  }
 
   if (state.status === "idle" || state.status === "failed") {
     return (
       <ConnectScreen
-        onConnect={connect}
+        onConnect={connectManually}
         error={state.status === "failed" ? state.error : undefined}
       />
     )
@@ -20,6 +37,7 @@ export default function App() {
       connection={state.connection}
       status={state.status}
       onDisconnect={disconnect}
+      useAgentDefaults={useAgentDefaults}
     />
   )
 }

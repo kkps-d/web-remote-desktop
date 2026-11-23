@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { connectToAgent, parseAgentAddress, scaleToHeight } from "../src/lib/agent-connection.ts"
+import {
+  connectToAgent,
+  localAgentFromSearch,
+  parseAgentAddress,
+  scaleToHeight,
+} from "../src/lib/agent-connection.ts"
 
 test("parses addresses, adding the agent's port only when none was typed", () => {
   for (const [typed, href] of [
@@ -15,6 +20,24 @@ test("parses addresses, adding the agent's port only when none was typed", () =>
   ]) {
     assert.equal(parseAgentAddress(typed).href, href, typed)
   }
+})
+
+test("only local agent addresses can opt into an automatic connection", () => {
+  assert.equal(localAgentFromSearch("?localAgent=127.0.0.1%3A8100"), "127.0.0.1:8100")
+  assert.equal(localAgentFromSearch("?localAgent=localhost%3A8100"), "localhost:8100")
+  for (const address of [
+    "example.org:8100",
+    "127.0.0.1",
+    "localhost:0",
+    "localhost:65536",
+    "localhost:8100/path",
+  ]) {
+    assert.equal(
+      localAgentFromSearch(new URLSearchParams({ localAgent: address }).toString()),
+      undefined,
+    )
+  }
+  assert.equal(localAgentFromSearch(""), undefined)
 })
 
 test("scales to a height with an even width", () => {
