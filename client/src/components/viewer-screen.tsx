@@ -209,6 +209,8 @@ export function ViewerScreen({ address, connection, status, onDisconnect }: View
         {(statsVisibility.basic || statsVisibility.advanced) && connected && connection && (
           <StatsOverlay
             connection={connection}
+            videoRef={videoRef}
+            targetFps={streamSettings.info?.settings.framerate}
             source={streamSettings.info?.source}
             basic={statsVisibility.basic}
             advanced={statsVisibility.advanced}

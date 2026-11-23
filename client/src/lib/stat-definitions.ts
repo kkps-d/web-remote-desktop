@@ -59,5 +59,10 @@ export const advancedStats = [
   },
 ] as const
 
+export const framePacing = {
+  name: "Frame pacing",
+  help: "Time between consecutive video frames submitted to the browser compositor over the last five seconds. Spikes show uneven playback. Missed callbacks leave gaps in the trace. Target is 1000 ÷ configured FPS. The browser can present frames at a different cadence.",
+} as const
+
 export type StatDefinition = (typeof basicStats)[number] | (typeof advancedStats)[number]
 export type StatName = StatDefinition["name"]

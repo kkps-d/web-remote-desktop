@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type RefObject } from "react"
 
+import { FramePacingGraph } from "@/components/frame-pacing-graph"
 import type { AgentConnection, EncodingStats, Resolution } from "@/lib/agent-connection"
 import {
   advancedStats,
@@ -11,12 +12,21 @@ import { averageEncodeMs, readStreamStats, type StatsSample } from "@/lib/stream
 
 interface StatsOverlayProps {
   connection: AgentConnection
+  videoRef: RefObject<HTMLVideoElement | null>
+  targetFps?: number
   source?: Resolution
   basic: boolean
   advanced: boolean
 }
 
-export function StatsOverlay({ connection, source, basic, advanced }: StatsOverlayProps) {
+export function StatsOverlay({
+  connection,
+  videoRef,
+  targetFps,
+  source,
+  basic,
+  advanced,
+}: StatsOverlayProps) {
   const [stats, setStats] = useState<ReturnType<typeof readStreamStats>>()
   const [encodeMs, setEncodeMs] = useState<number>()
 
@@ -88,10 +98,15 @@ export function StatsOverlay({ connection, source, basic, advanced }: StatsOverl
 
   return (
     // Ignores the pointer so clicks and scrolls reach the remote desktop beneath.
-    <div className="pointer-events-none absolute top-2 left-2 max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] overflow-hidden rounded-md bg-black/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-snug text-white">
-      {basic && <StatsSection title="Basic" stats={basicStats} values={values} />}
-      {basic && advanced && <div className="my-1.5 border-t border-white/15" />}
-      {advanced && <StatsSection title="Advanced" stats={advancedStats} values={values} />}
+    <div className="pointer-events-none absolute top-2 left-2 grid max-h-[calc(100%-1rem)] max-w-[calc(100%-1rem)] gap-2 overflow-hidden rounded-md bg-black/60 px-2 py-1.5 font-mono text-[0.6875rem] leading-snug text-white [@media(max-height:380px)_and_(min-width:480px)]:grid-flow-col">
+      <div className="min-w-0">
+        {basic && <StatsSection title="Basic" stats={basicStats} values={values} />}
+        {basic && advanced && <div className="my-1.5 border-t border-white/15" />}
+        {advanced && <StatsSection title="Advanced" stats={advancedStats} values={values} />}
+      </div>
+      {advanced && (
+        <FramePacingGraph connection={connection} videoRef={videoRef} targetFps={targetFps} />
+      )}
     </div>
   )
 }

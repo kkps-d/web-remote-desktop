@@ -1,0 +1,162 @@
+import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react"
+
+import type { AgentConnection } from "@/lib/agent-connection"
+import { FRAME_PACING_WINDOW_MS, FramePacingHistory, type FrameInterval } from "@/lib/frame-pacing"
+import { framePacing } from "@/lib/stat-definitions"
+
+interface FramePacingGraphProps {
+  connection: AgentConnection
+  videoRef: RefObject<HTMLVideoElement | null>
+  targetFps?: number
+}
+
+export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacingGraphProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [latest, setLatest] = useState<number>()
+  const [peak, setPeak] = useState<number>()
+  const targetMs = targetFps !== undefined && targetFps > 0 ? 1000 / targetFps : undefined
+  const supported =
+    typeof HTMLVideoElement.prototype.requestVideoFrameCallback === "function" &&
+    typeof HTMLVideoElement.prototype.cancelVideoFrameCallback === "function"
+
+  const redraw = useEffectEvent((history: FramePacingHistory) => {
+    const now = performance.now()
+    const samples = history.recent(now)
+    const peak = samples.reduce((max, sample) => Math.max(max, sample.durationMs), 0)
+    setLatest(samples.at(-1)?.durationMs)
+    setPeak(peak || undefined)
+    const canvas = canvasRef.current
+    if (canvas) drawGraph(canvas, samples, now, scaleMax(peak, targetMs), targetMs)
+  })
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !supported) return
+
+    let history = new FramePacingHistory()
+    let callbackId: number | undefined
+    let redrawTimer: ReturnType<typeof setInterval> | undefined
+    const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
+      if (document.hidden) return
+      history.add(metadata)
+      callbackId = video.requestVideoFrameCallback(onFrame)
+    }
+    const stop = () => {
+      if (callbackId !== undefined) video.cancelVideoFrameCallback(callbackId)
+      callbackId = undefined
+      clearInterval(redrawTimer)
+    }
+    const onVisibilityChange = () => {
+      stop()
+      history = new FramePacingHistory()
+      redraw(history)
+      if (document.hidden) return
+      callbackId = video.requestVideoFrameCallback(onFrame)
+      redrawTimer = setInterval(() => redraw(history), 250)
+    }
+
+    onVisibilityChange()
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      stop()
+    }
+  }, [connection, supported, videoRef])
+
+  return (
+    <section aria-label={framePacing.name} className="w-56 max-w-full self-start">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+        <h2 className="font-medium">{framePacing.name}</h2>
+        {supported && targetMs !== undefined && (
+          <span className="inline-flex items-center gap-1 text-white/80">
+            <span aria-hidden className="w-3 border-t border-dashed" />
+            Target {formatMs(targetMs)}
+          </span>
+        )}
+      </div>
+      {supported ? (
+        <>
+          <canvas
+            ref={canvasRef}
+            aria-hidden
+            className="mt-0.5 block h-8 w-full rounded-sm bg-white/10"
+          />
+          <div aria-hidden className="flex justify-between gap-x-1 text-white/70">
+            <span>5 s ago</span>
+            <span>0–{formatMs(scaleMax(peak, targetMs))}</span>
+            <span>Now</span>
+          </div>
+          <dl
+            aria-label="Frame interval summary"
+            className="mt-0.5 flex flex-wrap justify-between gap-x-2 tabular-nums"
+          >
+            <div className="flex gap-1">
+              <dt className="text-white/70">Latest</dt>
+              <dd>{formatMs(latest)}</dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="text-white/70">Peak</dt>
+              <dd>{formatMs(peak)}</dd>
+            </div>
+          </dl>
+        </>
+      ) : (
+        <p className="text-white/70">Unavailable in this browser</p>
+      )}
+    </section>
+  )
+}
+
+function formatMs(value?: number) {
+  return value === undefined ? "—" : `${value.toFixed(1)} ms`
+}
+
+function scaleMax(peak?: number, targetMs?: number) {
+  return Math.max(peak ?? 0, targetMs === undefined ? 33.3 : 2 * targetMs)
+}
+
+function drawGraph(
+  canvas: HTMLCanvasElement,
+  samples: readonly FrameInterval[],
+  now: number,
+  maxMs: number,
+  targetMs?: number,
+) {
+  const width = canvas.clientWidth
+  const height = canvas.clientHeight
+  const ctx = canvas.getContext("2d")
+  if (!ctx || width < 2 || height < 2) return
+
+  const pixelWidth = Math.round(width * window.devicePixelRatio)
+  const pixelHeight = Math.round(height * window.devicePixelRatio)
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight
+  ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0)
+  ctx.clearRect(0, 0, width, height)
+
+  const y = (ms: number) => height - 1 - (ms / maxMs) * (height - 2)
+  if (targetMs !== undefined) {
+    ctx.strokeStyle = "#ffffff99"
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.moveTo(0, y(targetMs))
+    ctx.lineTo(width, y(targetMs))
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  ctx.strokeStyle = "#fff"
+  ctx.fillStyle = "#fff"
+  ctx.beginPath()
+  for (const [index, { endedAt, durationMs, startsSegment }] of samples.entries()) {
+    const x = 1 + (1 - (now - endedAt) / FRAME_PACING_WINDOW_MS) * (width - 2)
+    const pointY = y(durationMs)
+    if (!index || startsSegment) {
+      ctx.fillRect(x - 0.75, pointY - 0.75, 1.5, 1.5)
+      ctx.moveTo(x, pointY)
+    } else {
+      ctx.lineTo(x, pointY)
+    }
+  }
+  ctx.stroke()
+}

@@ -37,7 +37,8 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 - The stats dropdown toggles Basic and Advanced sections independently. Defaults to Basic; the choice is remembered.
   - **Basic:** stream resolution, bitrate, framerate, network RTT.
-  - **Advanced:** source resolution, encode/decode time, packet loss, jitter, jitter buffer delay, dropped frames, freezes, codec, decoder.
+  - **Advanced:** source resolution, encode/decode time, packet loss, jitter, jitter buffer delay, dropped frames, freezes, codec, decoder, frame pacing.
+- Frame pacing plots the last five seconds of intervals between video frames submitted to the browser compositor. Missed video frame callbacks leave gaps. The dashed target shows the interval for the configured stream FPS. History clears when the overlay closes, the connection changes, or the tab is hidden.
 - Help opens a dialog explaining each statistic and its calculation.
 - Values include units; unavailable metrics show `—`. Rates and timing averages use recent samples; dropped frames and freezes are session counters.
 

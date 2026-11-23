@@ -8,7 +8,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { advancedStats, basicStats, type StatDefinition } from "@/lib/stat-definitions"
+import { advancedStats, basicStats, framePacing } from "@/lib/stat-definitions"
 
 interface StatsHelpDialogProps {
   open: boolean
@@ -31,8 +31,8 @@ export function StatsHelpDialog({ open, onOpenChange, returnFocus }: StatsHelpDi
             Statistics help
           </DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted-foreground">
-            Updated about once a second. Rates and averages use changes since the previous sample. —
-            means unavailable or waiting for enough data.
+            Most values update about once a second. Rates and averages use changes since the
+            previous sample. — means unavailable or waiting for enough data.
           </DialogDescription>
         </header>
         <div
@@ -43,7 +43,7 @@ export function StatsHelpDialog({ open, onOpenChange, returnFocus }: StatsHelpDi
         >
           <StatsHelpSection title="Basic" stats={basicStats} />
           <div className="my-5 border-t" />
-          <StatsHelpSection title="Advanced" stats={advancedStats} />
+          <StatsHelpSection title="Advanced" stats={[...advancedStats, framePacing]} />
         </div>
         <footer className="flex shrink-0 justify-end border-t px-6 py-3">
           <DialogClose render={<Button variant="outline" />}>Done</DialogClose>
@@ -53,7 +53,13 @@ export function StatsHelpDialog({ open, onOpenChange, returnFocus }: StatsHelpDi
   )
 }
 
-function StatsHelpSection({ title, stats }: { title: string; stats: readonly StatDefinition[] }) {
+function StatsHelpSection({
+  title,
+  stats,
+}: {
+  title: string
+  stats: readonly { name: string; help: string }[]
+}) {
   return (
     <section aria-label={`${title} statistics help`}>
       <h3 className="mb-3 text-sm font-semibold">{title}</h3>
