@@ -20,6 +20,9 @@ port = 8080 # --port overrides this, and turns direct connections on
 # Set the EIS socket to enable gamescope keyboard and mouse input. A filename
 # is resolved under XDG_RUNTIME_DIR. An absolute path is also accepted.
 # eis_socket = "gamescope-0-ei"
+# With EIS and a patched gamescope, send viewer cursor requests to this socket.
+# A filename is resolved under XDG_RUNTIME_DIR. An absolute path also works.
+# pipewire_cursor_socket = "containerz-cursor.sock"
 # Set the PipeWire sink node name to stream its monitor audio.
 # pipewire_audio_sink = "containerz-game-audio"
 

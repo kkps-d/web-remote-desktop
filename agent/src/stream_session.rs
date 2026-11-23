@@ -112,6 +112,7 @@ fn named_audio_requires_a_sink_and_an_opus_offer() {
         width_px: 1280,
         height_px: 720,
         eis_socket: None,
+        pipewire_cursor_socket: None,
         pipewire_audio_sink: None,
     };
     assert_eq!(audio_offer(Some(111), None), Ok(AudioOffer::Desktop(111)));

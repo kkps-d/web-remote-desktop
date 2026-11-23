@@ -67,6 +67,7 @@ pub struct CaptureConfig {
     pub width_px: i32,
     pub height_px: i32,
     pub eis_socket: Option<PathBuf>,
+    pub pipewire_cursor_socket: Option<PathBuf>,
     pub pipewire_audio_sink: Option<String>,
 }
 
@@ -102,16 +103,20 @@ impl CaptureConfig {
                 ));
             }
         }
-        if let Some(socket) = &self.eis_socket {
+        for (name, socket) in [
+            ("eis_socket", &self.eis_socket),
+            ("pipewire_cursor_socket", &self.pipewire_cursor_socket),
+        ] {
+            let Some(socket) = socket else { continue };
             let path = socket.to_string_lossy();
             if path.trim().is_empty()
                 || path.trim() != path
                 || path.chars().any(char::is_control)
                 || (!socket.is_absolute() && socket.file_name() != Some(socket.as_os_str()))
             {
-                return Err(
-                    "[capture] eis_socket must be an absolute path or socket filename.".into(),
-                );
+                return Err(format!(
+                    "[capture] {name} must be an absolute path or socket filename."
+                ));
             }
         }
         Ok(())
@@ -314,6 +319,7 @@ mod tests {
             let capture = config.unwrap().capture.unwrap();
             assert_eq!(capture.pipewire_node, "gamescope");
             assert_eq!(capture.eis_socket, None);
+            assert_eq!(capture.pipewire_cursor_socket, None);
             assert_eq!(capture.pipewire_audio_sink, None);
             assert_eq!(
                 capture.resolution(),
@@ -325,6 +331,35 @@ mod tests {
         } else {
             assert_eq!(config.unwrap_err(), "[capture] is supported only on Linux.");
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn validates_optional_pipewire_cursor_socket() {
+        let config = |socket: &str| {
+            capture(&format!(
+                "pipewire_node = 'gamescope'\nwidth_px = 1280\nheight_px = 720\npipewire_cursor_socket = '{socket}'"
+            ))
+        };
+        for socket in [
+            "containerz-cursor.sock",
+            "/run/user/1000/containerz-cursor.sock",
+        ] {
+            assert_eq!(
+                config(socket)
+                    .unwrap()
+                    .capture
+                    .unwrap()
+                    .pipewire_cursor_socket
+                    .as_deref(),
+                Some(Path::new(socket))
+            );
+        }
+        assert!(
+            config("../containerz-cursor.sock")
+                .unwrap_err()
+                .contains("pipewire_cursor_socket")
+        );
     }
 
     #[test]

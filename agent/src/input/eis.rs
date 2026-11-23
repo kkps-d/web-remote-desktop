@@ -1,6 +1,9 @@
+use std::cell::RefCell;
 use std::env;
+use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::path::Path;
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -12,6 +15,7 @@ use gstreamer::prelude::ObjectExt;
 use gstreamer_webrtc::WebRTCDataChannel;
 use rustix::event::{EventfdFlags, PollFd, PollFlags, eventfd, poll};
 use rustix::io::{self, Errno};
+use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with};
 use tracing::warn;
 
 use super::InputState;
@@ -36,18 +40,14 @@ struct Shared {
 }
 
 impl EisInput {
-    pub fn connect(socket: &Path, size: Resolution, session_id: &str) -> Result<Self, String> {
-        let path = if socket.is_absolute() {
-            socket.to_owned()
-        } else {
-            let runtime = env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| {
-                format!(
-                    "XDG_RUNTIME_DIR is unset for EIS socket {}",
-                    socket.display()
-                )
-            })?;
-            Path::new(&runtime).join(socket)
-        };
+    pub fn connect(
+        socket: &Path,
+        cursor_socket: Option<&Path>,
+        size: Resolution,
+        session_id: &str,
+    ) -> Result<Self, String> {
+        let path = socket_path(socket).map_err(|error| format!("EIS socket: {error}"))?;
+        let cursor_socket = cursor_socket.map(Path::to_owned);
         let shared = Arc::new(Shared {
             wake: eventfd(0, EventfdFlags::CLOEXEC | EventfdFlags::NONBLOCK)
                 .map_err(|error| error.to_string())?,
@@ -70,7 +70,12 @@ impl EisInput {
                     }
                 };
                 if ready.send(Ok(())).is_ok() {
-                    run(connection, incoming, &worker_shared, &session_id);
+                    let cursor = cursor_socket.as_deref().and_then(|socket| {
+                        connect_cursor(socket)
+                            .map_err(|error| warn!("Session {session_id}: {error}"))
+                            .ok()
+                    });
+                    run(connection, cursor, incoming, &worker_shared, &session_id);
                 }
             })
             .map_err(|error| error.to_string())?;
@@ -148,9 +153,59 @@ impl Shared {
     }
 }
 
-fn run(connection: EisConnection, incoming: Receiver<String>, shared: &Shared, session_id: &str) {
+fn socket_path(socket: &Path) -> Result<PathBuf, String> {
+    if socket.is_absolute() {
+        return Ok(socket.to_owned());
+    }
+    let runtime = env::var_os("XDG_RUNTIME_DIR")
+        .ok_or_else(|| format!("XDG_RUNTIME_DIR is unset for {}", socket.display()))?;
+    Ok(Path::new(&runtime).join(socket))
+}
+
+fn connect_cursor(socket: &Path) -> Result<UnixStream, String> {
+    let path = socket_path(socket)?;
+    let open = || {
+        let address = SocketAddrUnix::new(&path)?;
+        let fd = socket_with(
+            AddressFamily::UNIX,
+            SocketType::STREAM,
+            SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+            None,
+        )?;
+        connect(&fd, &address)?;
+        Ok::<_, Errno>(UnixStream::from(fd))
+    };
+    open().map_err(|error| format!("PipeWire cursor socket {}: {error}", path.display()))
+}
+
+fn send_cursor(cursor: &mut Option<UnixStream>, visible: bool) -> std::io::Result<()> {
+    if let Some(stream) = cursor
+        && let Err(error) = stream.write_all(if visible { b"1" } else { b"0" })
+    {
+        // Closing the socket also clears a cursor the compositor may still be showing.
+        *cursor = None;
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn run(
+    connection: EisConnection,
+    cursor: Option<UnixStream>,
+    incoming: Receiver<String>,
+    shared: &Shared,
+    session_id: &str,
+) {
     let mut input = InputState::new(connection);
-    if let Err(error) = dispatch(&mut input, incoming, shared, session_id) {
+    let cursor = RefCell::new(cursor);
+    let set_cursor = |visible| {
+        if let Err(error) = send_cursor(&mut cursor.borrow_mut(), visible) {
+            warn!("Session {session_id}: could not update the PipeWire cursor: {error}");
+        }
+    };
+    let result = dispatch(&mut input, incoming, shared, session_id, &set_cursor);
+    drop(cursor);
+    if let Err(error) = result {
         warn!("Session {session_id}: {error}");
         let _ = shared.reason.set(error);
         shared.stop();
@@ -179,6 +234,7 @@ fn dispatch(
     incoming: Receiver<String>,
     shared: &Shared,
     session_id: &str,
+    set_cursor: &dyn Fn(bool),
 ) -> Result<(), String> {
     while !shared.stopping.load(Ordering::Acquire) {
         let fd = input.backend.fd();
@@ -205,9 +261,40 @@ fn dispatch(
                 let Ok(text) = incoming.try_recv() else {
                     break;
                 };
-                apply_and_log::<_, TouchInjector>(&text, input, None, &|_| {}, session_id);
+                apply_and_log::<_, TouchInjector>(&text, input, None, set_cursor, session_id);
             }
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read;
+
+    use super::*;
+
+    #[test]
+    fn sends_cursor_visibility_and_closes_on_disconnect() {
+        let (stream, mut compositor) = UnixStream::pair().unwrap();
+        compositor.set_nonblocking(true).unwrap();
+        let mut cursor = Some(stream);
+        send_cursor(&mut cursor, true).unwrap();
+        send_cursor(&mut cursor, false).unwrap();
+        let mut commands = [0; 2];
+        compositor.read_exact(&mut commands).unwrap();
+        assert_eq!(&commands, b"10");
+        drop(cursor);
+        assert_eq!(compositor.read(&mut commands).unwrap(), 0);
+    }
+
+    #[test]
+    fn disables_cursor_after_a_socket_failure() {
+        let (stream, compositor) = UnixStream::pair().unwrap();
+        drop(compositor);
+        let mut cursor = Some(stream);
+        assert!(send_cursor(&mut cursor, true).is_err());
+        assert!(cursor.is_none());
+        assert!(send_cursor(&mut cursor, false).is_ok());
+    }
 }

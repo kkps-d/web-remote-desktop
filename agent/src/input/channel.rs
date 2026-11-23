@@ -52,7 +52,12 @@ impl InputChannel {
                     .eis_socket
                     .as_deref()
                     .ok_or("No EIS socket is configured")?;
-                Backend::Eis(EisInput::connect(path, capture.resolution(), session_id)?)
+                Backend::Eis(EisInput::connect(
+                    path,
+                    capture.pipewire_cursor_socket.as_deref(),
+                    capture.resolution(),
+                    session_id,
+                )?)
             }
             #[cfg(not(target_os = "linux"))]
             Some(_) => return Err("Named PipeWire capture is only supported on Linux".into()),
