@@ -4,6 +4,9 @@ import type { AgentConnection } from "@/lib/agent-connection"
 import { FRAME_PACING_WINDOW_MS, FramePacingHistory, type FrameInterval } from "@/lib/frame-pacing"
 import { framePacing } from "@/lib/stat-definitions"
 
+const REDRAW_INTERVAL_MS = 1000 / 30
+const READOUT_INTERVAL_MS = 250
+
 interface FramePacingGraphProps {
   connection: AgentConnection
   videoRef: RefObject<HTMLVideoElement | null>
@@ -12,6 +15,7 @@ interface FramePacingGraphProps {
 
 export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacingGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scaleLabelRef = useRef<HTMLSpanElement>(null)
   const [latest, setLatest] = useState<number>()
   const [peak, setPeak] = useState<number>()
   const targetMs = targetFps !== undefined && targetFps > 0 ? 1000 / targetFps : undefined
@@ -19,14 +23,14 @@ export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacin
     typeof HTMLVideoElement.prototype.requestVideoFrameCallback === "function" &&
     typeof HTMLVideoElement.prototype.cancelVideoFrameCallback === "function"
 
-  const redraw = useEffectEvent((history: FramePacingHistory) => {
-    const now = performance.now()
-    const samples = history.recent(now)
-    const peak = samples.reduce((max, sample) => Math.max(max, sample.durationMs), 0)
-    setLatest(samples.at(-1)?.durationMs)
-    setPeak(peak || undefined)
+  const redraw = useEffectEvent((samples: readonly FrameInterval[], now: number, peak: number) => {
+    const maxMs = Math.max(peak, targetMs === undefined ? 33.3 : 2 * targetMs)
     const canvas = canvasRef.current
-    if (canvas) drawGraph(canvas, samples, now, scaleMax(peak, targetMs), targetMs)
+    if (canvas) drawGraph(canvas, samples, now, maxMs, targetMs)
+
+    const scaleLabel = scaleLabelRef.current
+    const scaleText = `0–${formatMs(maxMs)}`
+    if (scaleLabel && scaleLabel.textContent !== scaleText) scaleLabel.textContent = scaleText
   })
 
   useEffect(() => {
@@ -35,24 +39,54 @@ export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacin
 
     let history = new FramePacingHistory()
     let callbackId: number | undefined
-    let redrawTimer: ReturnType<typeof setInterval> | undefined
+    let animationId: number | undefined
+    let readoutTimer: ReturnType<typeof setInterval> | undefined
+    let nextRedrawAt = 0
+    let latestMs: number | undefined
+    let peakMs = 0
     const onFrame: VideoFrameRequestCallback = (_now, metadata) => {
       if (document.hidden) return
       history.add(metadata)
       callbackId = video.requestVideoFrameCallback(onFrame)
     }
+    const draw = () => {
+      const now = performance.now()
+      const samples = history.recent(now)
+      latestMs = samples.at(-1)?.durationMs
+      peakMs = samples.reduce((max, sample) => Math.max(max, sample.durationMs), 0)
+      redraw(samples, now, peakMs)
+    }
+    const updateReadouts = () => {
+      setLatest(latestMs)
+      setPeak(peakMs || undefined)
+    }
+    const animate = (now: number) => {
+      if (document.hidden) return
+      // Allow for sub-millisecond timestamp rounding and skip missed redraws after a delay.
+      const elapsed = now + 0.5 - nextRedrawAt
+      if (elapsed >= 0) {
+        nextRedrawAt += (Math.floor(elapsed / REDRAW_INTERVAL_MS) + 1) * REDRAW_INTERVAL_MS
+        draw()
+      }
+      animationId = requestAnimationFrame(animate)
+    }
     const stop = () => {
       if (callbackId !== undefined) video.cancelVideoFrameCallback(callbackId)
       callbackId = undefined
-      clearInterval(redrawTimer)
+      if (animationId !== undefined) cancelAnimationFrame(animationId)
+      animationId = undefined
+      clearInterval(readoutTimer)
     }
     const onVisibilityChange = () => {
       stop()
       history = new FramePacingHistory()
-      redraw(history)
+      draw()
+      updateReadouts()
       if (document.hidden) return
       callbackId = video.requestVideoFrameCallback(onFrame)
-      redrawTimer = setInterval(() => redraw(history), 250)
+      nextRedrawAt = performance.now() + REDRAW_INTERVAL_MS
+      animationId = requestAnimationFrame(animate)
+      readoutTimer = setInterval(updateReadouts, READOUT_INTERVAL_MS)
     }
 
     onVisibilityChange()
@@ -64,7 +98,11 @@ export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacin
   }, [connection, supported, videoRef])
 
   return (
-    <section aria-label={framePacing.name} className="w-56 max-w-full self-start">
+    // Keep a compact preferred width while letting the grid stretch the graph to match wider stats.
+    <section
+      aria-label={framePacing.name}
+      className="min-w-0 self-start [contain-intrinsic-inline-size:14rem] [contain:inline-size]"
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="font-medium">{framePacing.name}</h2>
         {supported && targetMs !== undefined && (
@@ -83,7 +121,7 @@ export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacin
           />
           <div aria-hidden className="flex justify-between gap-x-1 text-white/70">
             <span>5 s ago</span>
-            <span>0–{formatMs(scaleMax(peak, targetMs))}</span>
+            <span ref={scaleLabelRef} />
             <span>Now</span>
           </div>
           <dl
@@ -109,10 +147,6 @@ export function FramePacingGraph({ connection, videoRef, targetFps }: FramePacin
 
 function formatMs(value?: number) {
   return value === undefined ? "—" : `${value.toFixed(1)} ms`
-}
-
-function scaleMax(peak?: number, targetMs?: number) {
-  return Math.max(peak ?? 0, targetMs === undefined ? 33.3 : 2 * targetMs)
 }
 
 function drawGraph(
