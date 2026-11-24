@@ -21,10 +21,11 @@ export function attachKeyboardInput(
   stage: HTMLElement,
   sender: InputSender,
   onLeave: () => void,
+  shouldLetBrowserHandleEscape?: () => boolean,
 ): () => void {
   function onKey(event: KeyboardEvent) {
     // Keys without a physical code (some IME and virtual keyboard events) can't be injected.
-    if (!event.code) return
+    if (!event.code || (event.code === "Escape" && shouldLetBrowserHandleEscape?.())) return
     // Same as Remote Desktop's shortcut for leaving the session's keyboard.
     if (event.type === "keydown" && event.code === "Home" && event.ctrlKey && event.altKey) {
       event.preventDefault()
@@ -49,7 +50,9 @@ export function attachKeyboardInput(
 
   // In fullscreen, Keyboard Lock lets shortcuts like Alt+Tab and Esc reach the remote computer.
   // It needs a secure context, so it only works over HTTP on localhost.
-  const keyboard = (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard
+  const keyboard = shouldLetBrowserHandleEscape
+    ? undefined
+    : (navigator as Navigator & { keyboard?: KeyboardLock }).keyboard
   function onFullscreenChange() {
     if (!keyboard?.lock || !window.isSecureContext) return
     if (document.fullscreenElement === stage) keyboard.lock().catch(() => {})

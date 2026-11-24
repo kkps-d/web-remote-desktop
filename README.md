@@ -88,7 +88,9 @@ npm run dev
 
 Open http://localhost:5173 and enter the agent's address (e.g. `192.168.1.20`).
 
-`npm run build` produces a static site in `client/dist`.
+`npm run build` produces a static site in `client/dist`. The game viewer at
+`/play/` takes `?agentPort=PORT` for an agent on the viewer's host or
+`?localAgent=127.0.0.1:PORT` for a loopback agent.
 
 > [!NOTE]
 > Serve the client over plain HTTP. HTTPS pages can't reach the HTTP agent.

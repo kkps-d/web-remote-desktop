@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type RefObject } from "react"
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 
 import type { AgentConnection } from "@/lib/agent-connection"
 import { createInputSender } from "@/lib/input-sender"
@@ -12,6 +12,8 @@ interface RemoteInputOptions extends InputSettings {
   videoRef: RefObject<HTMLVideoElement | null>
   /** Moves focus out of the stage when the user presses the leave shortcut; keep it stable. */
   onLeaveKeyboard: () => void
+  sendEscapeOnPointerRelease?: boolean
+  onPointerLockChange?: (locked: boolean) => void
 }
 
 /**
@@ -23,10 +25,13 @@ export function useRemoteInput({
   stageRef,
   videoRef,
   onLeaveKeyboard,
+  sendEscapeOnPointerRelease,
+  onPointerLockChange,
   mouse,
   touch,
   rateHz,
 }: RemoteInputOptions) {
+  const pointerLocked = useRef(false)
   const sender = useMemo(() => connection && createInputSender(connection.input), [connection])
 
   useEffect(() => {
@@ -36,14 +41,19 @@ export function useRemoteInput({
   useEffect(() => {
     const stage = stageRef.current
     if (!sender || !stage) return
-    const detach = attachKeyboardInput(stage, sender, onLeaveKeyboard)
+    const detach = attachKeyboardInput(
+      stage,
+      sender,
+      onLeaveKeyboard,
+      sendEscapeOnPointerRelease ? () => pointerLocked.current : undefined,
+    )
     return () => {
       detach()
       // Sent only if the channel is still open; the agent also releases input when it closes.
       sender.releaseAll()
       sender.cancelPending()
     }
-  }, [sender, stageRef, onLeaveKeyboard])
+  }, [sender, stageRef, onLeaveKeyboard, sendEscapeOnPointerRelease])
 
   useEffect(() => {
     const video = videoRef.current
@@ -54,13 +64,23 @@ export function useRemoteInput({
     const sendCursor = () => sender.setStreamCursor(mouse === "relative" || touch === "trackpad")
     sendCursor()
     connection.input.addEventListener("open", sendCursor)
-    const detach = attachPointerInput(video, sender, mouse, touch)
+    const detach = attachPointerInput(video, sender, mouse, touch, {
+      sendEscapeOnRelease: sendEscapeOnPointerRelease,
+      onChange(locked) {
+        pointerLocked.current = locked
+        onPointerLockChange?.(locked)
+      },
+    })
     return () => {
       connection.input.removeEventListener("open", sendCursor)
       detach()
+      if (pointerLocked.current) {
+        pointerLocked.current = false
+        onPointerLockChange?.(false)
+      }
       sender.releaseAll()
     }
-  }, [sender, connection, videoRef, mouse, touch])
+  }, [sender, connection, videoRef, mouse, touch, sendEscapeOnPointerRelease, onPointerLockChange])
 
   return sender
 }

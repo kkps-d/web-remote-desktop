@@ -71,8 +71,10 @@ export function attachPointerInput(
   sender: InputSender,
   mouse: MouseMode,
   touchMode: TouchMode,
+  lockEvents?: { onChange(locked: boolean): void; sendEscapeOnRelease?: boolean },
 ): () => void {
   const isLocked = () => document.pointerLockElement === video
+  let wasLocked = isLocked()
   const toFraction = (point: { clientX: number; clientY: number }, clamp: boolean) =>
     toVideoFraction(point, video.getBoundingClientRect(), video, { clamp })
   const touch =
@@ -153,8 +155,16 @@ export function attachPointerInput(
   }
 
   function onPointerLockChange() {
+    const locked = isLocked()
     // Leaving the lock (Esc) can swallow releases, so nothing may stay pressed.
-    if (!isLocked()) sender.releaseAll()
+    if (!locked) sender.releaseAll()
+    if (wasLocked === locked) return
+    wasLocked = locked
+    if (!locked && lockEvents?.sendEscapeOnRelease) {
+      sender.key("Escape", true)
+      sender.key("Escape", false)
+    }
+    lockEvents?.onChange(locked)
   }
 
   video.addEventListener("pointermove", onPointerMove)

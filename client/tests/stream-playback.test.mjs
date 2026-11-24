@@ -56,3 +56,10 @@ test("recognizes agents on this computer", () => {
     assert.equal(isLocalAgent(address), false, address)
   }
 })
+
+test("a superseded autoplay attempt cannot mute newer playback", async () => {
+  const video = fakeVideo(false, "NotAllowedError")
+  assert.equal(await playWithMutedFallback(video, () => false), false)
+  assert.equal(video.muted, false)
+  assert.deepEqual(video.plays, [false])
+})

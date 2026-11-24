@@ -9,13 +9,17 @@ type PlayableVideo = Pick<HTMLVideoElement, "muted" | "play">
  * which would stop the video too, so a blocked play is retried muted.
  * Resolves to true if it had to mute.
  */
-export async function playWithMutedFallback(video: PlayableVideo): Promise<boolean> {
+export async function playWithMutedFallback(
+  video: PlayableVideo,
+  isCurrent = () => true,
+): Promise<boolean> {
   try {
     await video.play()
     return false
   } catch (error) {
     // Other failures, such as AbortError when the stream is replaced, aren't about audio.
-    if (video.muted || (error as DOMException).name !== "NotAllowedError") return false
+    if (!isCurrent() || video.muted || (error as DOMException).name !== "NotAllowedError")
+      return false
     video.muted = true
     await video.play().catch(() => {})
     return true

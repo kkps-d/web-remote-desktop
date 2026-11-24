@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, type ReactNode } from "react"
 import {
   LoaderCircle,
   Maximize,
@@ -17,9 +17,9 @@ import { StreamSettingsPicker } from "@/components/stream-settings-picker"
 import { useInputSettings, useRemoteInput } from "@/hooks/use-remote-input"
 import { useStreamPlayback } from "@/hooks/use-stream-playback"
 import { useStreamSettings } from "@/hooks/use-stream-settings"
+import { useIsFullscreen, useStatsVisibility } from "@/hooks/use-viewer-controls"
 import { LEAVE_SHORTCUT } from "@/lib/keyboard-input"
 import { captureThumbnail, rememberDevice } from "@/lib/recent-devices"
-import { readStorage, writeStorage } from "@/lib/storage"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -39,15 +39,9 @@ const statusLabels = {
   reconnecting: "Reconnecting…",
 }
 
-const STATS_VISIBILITY_KEY = "statsVisibility"
 // The first capture waits a moment so the stream has settled past its first frames.
 const FIRST_THUMBNAIL_DELAY_MS = 2000
 const THUMBNAIL_INTERVAL_MS = 60_000
-
-interface StatsVisibility {
-  basic: boolean
-  advanced: boolean
-}
 
 export function ViewerScreen({
   address,
@@ -260,35 +254,4 @@ function ToolbarButton({
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
-}
-
-function useIsFullscreen() {
-  const [isFullscreen, setIsFullscreen] = useState(() => document.fullscreenElement != null)
-
-  useEffect(() => {
-    const update = () => setIsFullscreen(document.fullscreenElement != null)
-    document.addEventListener("fullscreenchange", update)
-    return () => document.removeEventListener("fullscreenchange", update)
-  }, [])
-
-  return isFullscreen
-}
-
-/** Which stats overlay sections are shown, remembered across visits. Defaults to Basic only. */
-function useStatsVisibility() {
-  const [visibility, setVisibility] = useState<StatsVisibility>(() => {
-    try {
-      const saved = JSON.parse(readStorage(STATS_VISIBILITY_KEY) ?? "null")
-      if (typeof saved?.basic === "boolean" && typeof saved?.advanced === "boolean") return saved
-    } catch {
-      // A malformed saved value falls back to the defaults.
-    }
-    return { basic: true, advanced: false }
-  })
-
-  useEffect(() => {
-    writeStorage(STATS_VISIBILITY_KEY, JSON.stringify(visibility))
-  }, [visibility])
-
-  return [visibility, setVisibility] as const
 }

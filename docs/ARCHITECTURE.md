@@ -27,6 +27,12 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 
 ### Screens
 
+The desktop viewer is at `/`. The game viewer at `/play/` opens the agent from
+the launch URL, uses relative mouse and trackpad touch input, and sends Escape
+on pointer-lock release. It uses the agent-selected encoder and caps its three
+quality presets to the session limits. Both viewers share the stats overlay and
+its visibility preferences.
+
 - **Connect form:** the agent address, pre-filled with the last used one (localStorage).
 - **Recent devices** below the form: up to 8 agents, newest first, each with a screenshot thumbnail and last-connected time. Click to reconnect; forget removes one. The thumbnail refreshes 2 s after connecting, every minute, and on disconnect.
 - **Connection status:** connecting, connected, failed (with the reason).
@@ -78,7 +84,7 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 - `[stream]` sets a maximum resolution (a bounding box; the stream starts scaled down to fit), default and maximum frame rate, and default and maximum bitrate.
 - Set `loopback_only = true` in `[direct]` to bind signaling to `127.0.0.1`.
 - Set `bind_address` in `[direct]` to bind signaling to a specific IPv4 address. `loopback_only` takes precedence.
-- A viewer URL with `?agentPort=PORT` connects to the viewer's host on that port. `?localAgent=127.0.0.1:PORT` connects to loopback. Both use the agent’s stream defaults. The manual Connect screen uses the browser’s saved stream preferences.
+- A viewer URL with `?agentPort=PORT` connects to the viewer's host on that port. `?localAgent=127.0.0.1:PORT` connects to loopback. Desktop launch links use the agent’s stream defaults. The manual Connect screen uses the browser’s saved stream preferences. Game launch links start at Medium quality.
 - The orchprox url is only checked for now.
 
 ### Windows pipeline
