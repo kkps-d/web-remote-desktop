@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   connectToAgent,
+  connectToGame,
   launchAgentFromSearch,
   parseAgentAddress,
   scaleToHeight,
@@ -65,7 +66,8 @@ class FakePeerConnection {
   closed = false
   onRemoteDescription = () => {}
 
-  constructor() {
+  constructor(configuration) {
+    this.configuration = configuration
     FakePeerConnection.last = this
   }
   addTransceiver(kind) {
@@ -144,6 +146,32 @@ test("posts the offer and ends the session at the URL the agent returned", async
   assert.equal(requests[1].url, "http://pc:9000/sessions/abc")
   assert.equal(requests[1].method, "DELETE")
   assert.equal(requests[1].init.keepalive, true)
+})
+
+test("uses same-origin signaling and relay-only ICE for a game launch", async (t) => {
+  const playerOrigin = "http://localhost:5180"
+  globalThis.window = { location: { origin: playerOrigin } }
+  t.after(() => delete globalThis.window)
+  const instance = "d2379bc0-b611-44aa-8ce0-d1e9bc997b77"
+  const stream = `${playerOrigin}/api/games/instances/${instance}/stream`
+  const iceServers = [{ urls: "turn:172.30.42.2:3478", username: "test", credential: "test" }]
+  const requests = stubFetch(t, (request) => {
+    if (request.url === `${stream}/ice`) return Response.json({ iceServers })
+    if (request.url === `${stream}/status`) return new Response(null, { status: 410 })
+    return agent(request)
+  })
+  const signal = new AbortController().signal
+  const connection = await connectToGame(instance, signal)
+  assert.deepEqual(FakePeerConnection.last.configuration, {
+    iceServers,
+    iceTransportPolicy: "relay",
+  })
+  assert.deepEqual(
+    requests.map((request) => request.url),
+    [`${stream}/ice`, `${stream}/offer`],
+  )
+  assert.equal(await connection.isGameAvailable(signal), false)
+  assert.equal(requests[2].init.signal, signal)
 })
 
 test("cancelling before the offer is sent leaves the agent's current viewer alone", async (t) => {

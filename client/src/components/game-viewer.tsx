@@ -80,11 +80,13 @@ export function GameViewer() {
   const capped = quality.applied !== undefined && settings && !matchesGameQuality(settings, preset)
   const status = !address
     ? "Open the viewer from the game coordinator."
-    : state.status === "failed"
-      ? state.error
-      : state.status === "reconnecting"
-        ? "Connection lost. Reconnecting…"
-        : "Connecting to the game…"
+    : state.status === "ended"
+      ? "Game stream ended."
+      : state.status === "failed"
+        ? state.error
+        : state.status === "reconnecting"
+          ? "Connection lost. Reconnecting…"
+          : "Connecting to the game…"
 
   async function toggleFullscreen() {
     try {

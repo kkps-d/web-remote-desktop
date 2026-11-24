@@ -4,6 +4,7 @@ import { connectToAgent, type AgentConnection } from "@/lib/agent-connection"
 
 export type ViewerState =
   | { status: "idle" }
+  | { status: "ended" }
   | { status: "connecting"; address: string; connection?: AgentConnection }
   | { status: "connected"; address: string; connection: AgentConnection }
   | { status: "reconnecting"; address: string; connection: AgentConnection }
@@ -69,6 +70,25 @@ export function useAgentViewer(openConnection = connectToAgent) {
       }
       peerConnection.onconnectionstatechange = updateConnectionState
       updateConnectionState()
+
+      if (connection.isGameAvailable && !attempt.signal.aborted) {
+        const isGameAvailable = connection.isGameAvailable
+        let statusTimer = window.setTimeout(checkStatus, 1500)
+        attempt.signal.addEventListener("abort", () => window.clearTimeout(statusTimer), {
+          once: true,
+        })
+
+        async function checkStatus() {
+          const available = await isGameAvailable(attempt.signal).catch(() => true)
+          if (attempt.signal.aborted) return
+          if (!available) {
+            closeConnection()
+            setState({ status: "ended" })
+          } else {
+            statusTimer = window.setTimeout(checkStatus, 1500)
+          }
+        }
+      }
     },
     [closeConnection, openConnection],
   )

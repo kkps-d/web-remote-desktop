@@ -24,7 +24,7 @@ export default function App() {
     return connect(address)
   }
 
-  if (state.status === "idle" || state.status === "failed") {
+  if (state.status === "idle" || state.status === "ended" || state.status === "failed") {
     return (
       <ConnectScreen
         onConnect={connectManually}

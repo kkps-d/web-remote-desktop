@@ -16,6 +16,7 @@ export interface AgentConnection {
   updateStreamSettings: (update: Partial<StreamSettings>) => Promise<StreamInfo>
   /** Closes the connection and tells the agent to stop streaming. */
   close: () => void
+  isGameAvailable?: (signal: AbortSignal) => Promise<boolean>
 }
 
 export interface Resolution {
@@ -100,7 +101,17 @@ export async function connectToGame(
   }
   const { iceServers } = (await response.json()) as { iceServers: RTCIceServer[] }
   signal.throwIfAborted()
-  return connectViewer(new URL("offer", base), signal, { iceServers, iceTransportPolicy: "relay" })
+  const connection = await connectViewer(new URL("offer", base), signal, {
+    iceServers,
+    iceTransportPolicy: "relay",
+  })
+  return {
+    ...connection,
+    async isGameAvailable(signal) {
+      const status = await fetch(new URL("status", base), { signal })
+      return ![401, 404, 410].includes(status.status)
+    },
+  }
 }
 
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */
