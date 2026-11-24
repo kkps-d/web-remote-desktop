@@ -10,7 +10,7 @@ export type ViewerState =
   | { status: "failed"; address: string; error: string }
 
 /** Manages the lifecycle of one viewer connection to an agent. */
-export function useAgentViewer() {
+export function useAgentViewer(openConnection = connectToAgent) {
   const [state, setState] = useState<ViewerState>({ status: "idle" })
   const connectionRef = useRef<AgentConnection | null>(null)
   // Aborted on every connect/disconnect so a superseded attempt stops and its results are ignored.
@@ -32,7 +32,7 @@ export function useAgentViewer() {
 
       let connection: AgentConnection
       try {
-        connection = await connectToAgent(address, attempt.signal)
+        connection = await openConnection(address, attempt.signal)
       } catch (error) {
         if (attempt.signal.aborted) return
         setState({
@@ -51,7 +51,7 @@ export function useAgentViewer() {
       setState({ status: "connecting", address, connection })
 
       const { peerConnection } = connection
-      peerConnection.onconnectionstatechange = () => {
+      const updateConnectionState = () => {
         if (attempt.signal.aborted) return
         switch (peerConnection.connectionState) {
           case "connected":
@@ -67,8 +67,10 @@ export function useAgentViewer() {
             break
         }
       }
+      peerConnection.onconnectionstatechange = updateConnectionState
+      updateConnectionState()
     },
-    [closeConnection],
+    [closeConnection, openConnection],
   )
 
   const disconnect = useCallback(() => {

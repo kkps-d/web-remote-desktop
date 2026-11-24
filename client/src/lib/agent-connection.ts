@@ -79,6 +79,30 @@ export function launchAgentFromSearch(search: string, hostname: string): string 
   }
 }
 
+export function launchGameFromSearch(search: string): string | undefined {
+  const instance = new URLSearchParams(search).get("instance")
+  if (instance && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(instance)) return instance
+}
+
+export async function connectToGame(
+  instanceId: string,
+  signal: AbortSignal,
+): Promise<AgentConnection> {
+  const base = new URL(
+    `/api/games/instances/${encodeURIComponent(instanceId)}/stream/`,
+    window.location.origin,
+  )
+  const response = await fetch(new URL("ice", base), { signal })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    const message = typeof body?.error === "string" ? body.error : "Couldn't open the game stream."
+    throw new Error(message)
+  }
+  const { iceServers } = (await response.json()) as { iceServers: RTCIceServer[] }
+  signal.throwIfAborted()
+  return connectViewer(new URL("offer", base), signal, { iceServers, iceTransportPolicy: "relay" })
+}
+
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */
 export function parseAgentAddress(address: string): URL {
   const trimmed = address.trim()
@@ -99,8 +123,15 @@ export async function connectToAgent(
   address: string,
   signal: AbortSignal,
 ): Promise<AgentConnection> {
-  const baseUrl = parseAgentAddress(address)
-  const peerConnection = new RTCPeerConnection()
+  return connectViewer(new URL("/offer", parseAgentAddress(address)), signal)
+}
+
+async function connectViewer(
+  offerUrl: URL,
+  signal: AbortSignal,
+  configuration?: RTCConfiguration,
+): Promise<AgentConnection> {
+  const peerConnection = new RTCPeerConnection(configuration)
   const stream = new MediaStream()
   let sessionUrl: URL | null = null
 
@@ -117,14 +148,14 @@ export async function connectToAgent(
     // A new session would replace whichever viewer the agent has now, so don't start one if cancelled.
     signal.throwIfAborted()
 
-    const response = await postOffer(baseUrl, peerConnection.localDescription!.sdp)
+    const response = await postOffer(offerUrl, peerConnection.localDescription!.sdp)
     const answer = await response.text()
     if (!response.ok) {
       throw new Error(answer || `The agent responded with ${response.status}.`)
     }
 
     const location = response.headers.get("Location")
-    sessionUrl = location ? new URL(location, baseUrl) : null
+    sessionUrl = location ? new URL(location, offerUrl) : null
     await peerConnection.setRemoteDescription({ type: "answer", sdp: answer })
     signal.throwIfAborted()
 
@@ -187,16 +218,16 @@ function endSession(sessionUrl: URL | null) {
   if (sessionUrl) fetch(sessionUrl, { method: "DELETE", keepalive: true }).catch(() => {})
 }
 
-async function postOffer(baseUrl: URL, sdp: string): Promise<Response> {
+async function postOffer(offerUrl: URL, sdp: string): Promise<Response> {
   try {
-    return await fetch(new URL("/offer", baseUrl), {
+    return await fetch(offerUrl, {
       method: "POST",
       headers: { "Content-Type": "application/sdp" },
       body: sdp,
     })
   } catch {
     throw new Error(
-      `Couldn't reach the agent at ${baseUrl.host}. Check the address and that the agent is running.`,
+      `Couldn't reach the agent at ${offerUrl.host}. Check the address and that the agent is running.`,
     )
   }
 }

@@ -10,14 +10,20 @@ import { useGamePlayback } from "@/hooks/use-game-playback"
 import { useGameQuality } from "@/hooks/use-game-quality"
 import { useRemoteInput } from "@/hooks/use-remote-input"
 import { useIsFullscreen, useStatsVisibility } from "@/hooks/use-viewer-controls"
-import { launchAgentFromSearch } from "@/lib/agent-connection"
+import {
+  connectToAgent,
+  connectToGame,
+  launchAgentFromSearch,
+  launchGameFromSearch,
+} from "@/lib/agent-connection"
 import { defaultGameQuality, gameQualityPresets, matchesGameQuality } from "@/lib/game-quality"
 
 export function GameViewer() {
-  const [address] = useState(() =>
-    launchAgentFromSearch(window.location.search, window.location.hostname),
+  const [game] = useState(() => launchGameFromSearch(window.location.search))
+  const [address] = useState(
+    () => game ?? launchAgentFromSearch(window.location.search, window.location.hostname),
   )
-  const { state, connect } = useAgentViewer()
+  const { state, connect } = useAgentViewer(game ? connectToGame : connectToAgent)
   const launch = useCallback(() => {
     if (address) void connect(address)
   }, [address, connect])
@@ -75,7 +81,7 @@ export function GameViewer() {
   const status = !address
     ? "Open the viewer from the game coordinator."
     : state.status === "failed"
-      ? "Couldn't connect to the game stream."
+      ? state.error
       : state.status === "reconnecting"
         ? "Connection lost. Reconnecting…"
         : "Connecting to the game…"
