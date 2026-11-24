@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { GameQualityPicker } from "@/components/game-quality-picker"
 import { StatsMenu } from "@/components/stats-menu"
 import { StatsOverlay } from "@/components/stats-overlay"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { useAgentViewer } from "@/hooks/use-agent-viewer"
 import { useGamePlayback } from "@/hooks/use-game-playback"
 import { useGameQuality } from "@/hooks/use-game-quality"
@@ -161,6 +161,11 @@ export function GameViewer() {
               <Button variant="secondary" size="sm" onClick={launch}>
                 Retry
               </Button>
+            )}
+            {game && (state.status === "failed" || state.status === "ended") && (
+              <a className={buttonVariants({ variant: "secondary", size: "sm" })} href="/">
+                Back to games
+              </a>
             )}
           </div>
         )}

@@ -2,6 +2,10 @@
 
 const DEFAULT_AGENT_PORT = 8080
 const ICE_GATHERING_TIMEOUT_MS = 5000
+const RELAY_GATHERING_TIMEOUT_MS = 10000
+const GAME_CONNECTION_TIMEOUT_MS = 12000
+
+class RelayConnectionError extends Error {}
 
 export interface AgentConnection {
   peerConnection: RTCPeerConnection
@@ -93,10 +97,23 @@ export async function connectToGame(
     `/api/games/instances/${encodeURIComponent(instanceId)}/stream/`,
     window.location.origin,
   )
-  const response = await fetch(new URL("ice", base), { signal })
+  try {
+    return await openGameViewer(base, signal)
+  } catch (error) {
+    signal.throwIfAborted()
+    if (!(error instanceof RelayConnectionError)) throw error
+    return openGameViewer(base, signal)
+  }
+}
+
+async function openGameViewer(base: URL, signal: AbortSignal): Promise<AgentConnection> {
+  const response = await fetch(new URL("ice", base), { signal }).catch(() => {
+    throw new RelayConnectionError("Couldn't reach the game service.")
+  })
   if (!response.ok) {
     const body = await response.json().catch(() => null)
     const message = typeof body?.error === "string" ? body.error : "Couldn't open the game stream."
+    if (response.status === 503) throw new RelayConnectionError(message)
     throw new Error(message)
   }
   const { iceServers } = (await response.json()) as { iceServers: RTCIceServer[] }
@@ -105,6 +122,12 @@ export async function connectToGame(
     iceServers,
     iceTransportPolicy: "relay",
   })
+  try {
+    await waitForGameConnection(connection.peerConnection, signal)
+  } catch (error) {
+    connection.close()
+    throw error
+  }
   return {
     ...connection,
     async isGameAvailable(signal) {
@@ -142,6 +165,7 @@ async function connectViewer(
   signal: AbortSignal,
   configuration?: RTCConfiguration,
 ): Promise<AgentConnection> {
+  const relayOnly = configuration?.iceTransportPolicy === "relay"
   const peerConnection = new RTCPeerConnection(configuration)
   const stream = new MediaStream()
   let sessionUrl: URL | null = null
@@ -155,13 +179,29 @@ async function connectViewer(
 
   try {
     await peerConnection.setLocalDescription(await peerConnection.createOffer())
-    await waitForIceGathering(peerConnection)
+    await waitForIceGathering(
+      peerConnection,
+      relayOnly ? RELAY_GATHERING_TIMEOUT_MS : ICE_GATHERING_TIMEOUT_MS,
+    )
     // A new session would replace whichever viewer the agent has now, so don't start one if cancelled.
     signal.throwIfAborted()
 
-    const response = await postOffer(offerUrl, peerConnection.localDescription!.sdp)
+    const offer = peerConnection.localDescription!.sdp
+    if (relayOnly && !/^a=candidate:[^\r\n]+ typ relay(?=\s|$)/m.test(offer)) {
+      throw new RelayConnectionError(
+        "Couldn't get a TURN relay candidate. Try opening the stream again.",
+      )
+    }
+
+    const response = await postOffer(offerUrl, offer).catch((error) => {
+      if (relayOnly) throw new RelayConnectionError(error.message)
+      throw error
+    })
     const answer = await response.text()
     if (!response.ok) {
+      if (relayOnly && response.status >= 502 && response.status <= 504) {
+        throw new RelayConnectionError("The game agent couldn't set up the stream. Try again.")
+      }
       throw new Error(answer || `The agent responded with ${response.status}.`)
     }
 
@@ -243,19 +283,50 @@ async function postOffer(offerUrl: URL, sdp: string): Promise<Response> {
   }
 }
 
-function waitForIceGathering(peerConnection: RTCPeerConnection): Promise<void> {
+function waitForIceGathering(peerConnection: RTCPeerConnection, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
     if (peerConnection.iceGatheringState === "complete") return resolve()
 
-    // Send whatever candidates we have if gathering stalls; host candidates are enough on a LAN.
-    const timeout = setTimeout(done, ICE_GATHERING_TIMEOUT_MS)
-    peerConnection.addEventListener("icegatheringstatechange", () => {
+    const timeout = setTimeout(done, timeoutMs)
+    function onChange() {
       if (peerConnection.iceGatheringState === "complete") done()
-    })
+    }
+    peerConnection.addEventListener("icegatheringstatechange", onChange)
 
     function done() {
       clearTimeout(timeout)
+      peerConnection.removeEventListener("icegatheringstatechange", onChange)
       resolve()
     }
+  })
+}
+
+function waitForGameConnection(peer: RTCPeerConnection, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => finish(new RelayConnectionError("The TURN connection timed out. Try again.")),
+      GAME_CONNECTION_TIMEOUT_MS,
+    )
+
+    function finish(error?: unknown) {
+      clearTimeout(timer)
+      peer.removeEventListener("connectionstatechange", onChange)
+      signal.removeEventListener("abort", onAbort)
+      if (error) reject(error)
+      else resolve()
+    }
+    function onAbort() {
+      finish(signal.reason)
+    }
+    function onChange() {
+      if (peer.connectionState === "connected") finish()
+      else if (peer.connectionState === "failed" || peer.connectionState === "closed") {
+        finish(new RelayConnectionError("Couldn't connect through TURN. Try again."))
+      }
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+    peer.addEventListener("connectionstatechange", onChange)
+    onChange()
   })
 }

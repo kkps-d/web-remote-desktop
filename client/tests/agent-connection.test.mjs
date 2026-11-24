@@ -59,9 +59,11 @@ test("scales to a height with an even width", () => {
   assert.deepEqual(scaleToHeight({ width: 1366, height: 768 }, 720), { width: 1280, height: 720 })
 })
 
+const relayOffer = "v=0\r\na=candidate:1 1 udp 1 172.30.42.2 49160 typ relay\r\n"
 class FakePeerConnection {
   static last
   iceGatheringState = "complete"
+  connectionState = "connected"
   steps = []
   closed = false
   onRemoteDescription = () => {}
@@ -79,7 +81,10 @@ class FakePeerConnection {
   }
   async createOffer() {
     this.steps.push("offer")
-    return { type: "offer", sdp: "offer-sdp" }
+    return {
+      type: "offer",
+      sdp: this.configuration?.iceTransportPolicy === "relay" ? relayOffer : "offer-sdp",
+    }
   }
   async setLocalDescription(description) {
     this.localDescription = description
@@ -89,6 +94,7 @@ class FakePeerConnection {
     this.onRemoteDescription()
   }
   addEventListener() {}
+  removeEventListener() {}
   close() {
     this.closed = true
   }
@@ -172,6 +178,58 @@ test("uses same-origin signaling and relay-only ICE for a game launch", async (t
   )
   assert.equal(await connection.isGameAvailable(signal), false)
   assert.equal(requests[2].init.signal, signal)
+})
+
+test("retries with new TURN credentials after a candidate-free offer", async (t) => {
+  globalThis.window = { location: { origin: "http://localhost:5180" } }
+  t.after(() => delete globalThis.window)
+  const peers = []
+  const offer = FakePeerConnection.prototype.createOffer
+  t.mock.method(FakePeerConnection.prototype, "createOffer", async function () {
+    peers.push(this)
+    if (peers.length === 1) return { type: "offer", sdp: "v=0\r\n" }
+    return offer.call(this)
+  })
+  let issued = 0
+  const requests = stubFetch(t, (request) => {
+    if (request.url.endsWith("/ice"))
+      return Response.json({
+        iceServers: [{ urls: "turn:172.30.42.2:3478", credential: String(++issued) }],
+      })
+    return agent(request)
+  })
+
+  const connection = await connectToGame("game-instance", new AbortController().signal)
+  assert.equal(peers[0].closed, true)
+  assert.equal(peers[1], connection.peerConnection)
+  assert.equal(peers[1].configuration.iceServers[0].credential, "2")
+  assert.deepEqual(
+    requests.map(({ url }) => new URL(url).pathname.split("/").at(-1)),
+    ["ice", "ice", "offer"],
+  )
+})
+
+test("closes a failed relayed handshake before reconnecting", async (t) => {
+  globalThis.window = { location: { origin: "http://localhost:5180" } }
+  t.after(() => delete globalThis.window)
+  const attempts = []
+  const setAnswer = FakePeerConnection.prototype.setRemoteDescription
+  t.mock.method(FakePeerConnection.prototype, "setRemoteDescription", async function (description) {
+    attempts.push(this)
+    if (attempts.length === 1) this.connectionState = "failed"
+    return setAnswer.call(this, description)
+  })
+  const requests = stubFetch(t, (request) =>
+    request.url.endsWith("/ice") ? Response.json({ iceServers: [] }) : agent(request),
+  )
+
+  const connection = await connectToGame("game-instance", new AbortController().signal)
+  assert.equal(attempts[0].closed, true)
+  assert.equal(connection.peerConnection, attempts[1])
+  assert.deepEqual(
+    requests.map(({ method }) => method),
+    ["GET", "POST", "DELETE", "GET", "POST"],
+  )
 })
 
 test("cancelling before the offer is sent leaves the agent's current viewer alone", async (t) => {

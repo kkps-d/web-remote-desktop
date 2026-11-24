@@ -52,19 +52,33 @@ export function useAgentViewer(openConnection = connectToAgent) {
       setState({ status: "connecting", address, connection })
 
       const { peerConnection } = connection
+      let reconnectTimeout: number | undefined
+      const failConnection = () => {
+        if (attempt.signal.aborted) return
+        closeConnection()
+        setState({
+          status: "failed",
+          address,
+          error: "The connection to the agent was lost. Try again.",
+        })
+      }
+      attempt.signal.addEventListener("abort", () => window.clearTimeout(reconnectTimeout), {
+        once: true,
+      })
       const updateConnectionState = () => {
         if (attempt.signal.aborted) return
+        window.clearTimeout(reconnectTimeout)
         switch (peerConnection.connectionState) {
           case "connected":
             setState({ status: "connected", address, connection })
             break
-          // The browser keeps trying to recover until it gives up with "failed".
           case "disconnected":
             setState({ status: "reconnecting", address, connection })
+            if (connection.isGameAvailable)
+              reconnectTimeout = window.setTimeout(failConnection, 8000)
             break
           case "failed":
-            closeConnection()
-            setState({ status: "failed", address, error: "The connection to the agent was lost." })
+            failConnection()
             break
         }
       }

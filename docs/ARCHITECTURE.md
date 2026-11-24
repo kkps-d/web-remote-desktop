@@ -62,7 +62,7 @@ its visibility preferences.
 
 When the game runner sets `GAME_STREAM_AGENT_URL` and `GAME_STREAM_LAUNCH_TOKEN`, the agent opens an outbound WebSocket on the private Docker bridge. It sends the one-time token in the Authorization header and keeps the socket open until the game ends or the service disconnects. The runner sets both variables per launch. Direct desktop connections still use the HTTP API below.
 
-The game session service mounts the separately built viewer under `/viewer/`. A game launch opens `/viewer/play/?instance=<id>`, and the viewer uses the player's same-origin session to request TURN credentials and exchange SDP. The same viewer can also connect to a direct agent using its existing launch links.
+The game session service mounts the separately built viewer under `/viewer/`. A game launch opens `/viewer/play/?instance=<id>`, and the viewer uses the player's same-origin session to request TURN credentials and exchange SDP. A failed TURN handshake gets one fresh attempt before the viewer shows Retry. When the game ends, its viewer links back to the player panel. The same viewer can also connect to a direct agent using its existing launch links.
 
 ### HTTP API
 
