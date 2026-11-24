@@ -58,6 +58,10 @@ its visibility preferences.
 - The user enters the agent's address manually.
 - See [plain HTTP limitations](KNOWN_ISSUES.md#plain-http).
 
+### Game container registration
+
+When the game runner sets `GAME_STREAM_AGENT_URL` and `GAME_STREAM_LAUNCH_TOKEN`, the agent opens an outbound WebSocket on the private Docker bridge. It sends the one-time token in the Authorization header and keeps the socket open until the game ends or the service disconnects. The runner sets both variables per launch. Direct desktop connections still use the HTTP API below.
+
 ### HTTP API
 
 | Endpoint | Purpose |

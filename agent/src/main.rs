@@ -1,6 +1,7 @@
 mod config;
 mod encode_timing;
 mod encoders;
+mod game_registration;
 mod http;
 mod input;
 mod named_audio;
@@ -36,6 +37,13 @@ async fn main() {
             std::process::exit(2);
         }
     };
+    let registration = match game_registration::from_env() {
+        Ok(registration) => registration,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
     if let Some(orchprox) = &config.orchprox {
         warn!(
             "Connecting to the orchprox at {} isn't implemented yet; ignoring it.",
@@ -55,6 +63,10 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    if let Some(request) = registration {
+        tokio::spawn(game_registration::run(request));
+    }
 
     let shutdown = async {
         #[cfg(target_os = "linux")]

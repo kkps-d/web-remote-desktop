@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 gstreamer = "0.25"
 gstreamer-sdp = "0.25"
 gstreamer-webrtc = { version = "0.25", features = ["v1_18"] }
@@ -12,7 +13,8 @@ regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 socket2 = "0.6.5"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tokio-tungstenite = "0.30"
 toml = "1.2.1"
 tower-http = { version = "0.7.1", features = ["cors"] }
 tracing = "0.1.44"
@@ -26,7 +28,6 @@ windows = { version = "0.62.2", features = ["Wdk_System_SystemServices", "Win32_
 ashpd = { version = "0.14", default-features = false, features = ["async-io", "screencast"] }
 evdev = "0.13"
 futures-channel = "0.3"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
 libloading = "0.9"
 rustix = { version = "1", features = ["event", "fs", "net"] }
 wayland-client = "0.31"
