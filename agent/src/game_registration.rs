@@ -2,9 +2,10 @@
 
 use std::env;
 use std::net::Ipv4Addr;
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async_with_config;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -12,6 +13,9 @@ use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::header::{AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::tungstenite::protocol::{Message, WebSocketConfig};
 use tracing::{info, warn};
+
+use crate::game_signaling;
+use crate::viewer_sessions::ViewerSessions;
 
 pub fn from_env() -> Result<Option<Request>, &'static str> {
     match (
@@ -53,10 +57,10 @@ fn registration_request(url: &str, token: &str) -> Result<Request, &'static str>
     Ok(request)
 }
 
-pub async fn run(request: Request) {
+pub async fn run(request: Request, sessions: Arc<ViewerSessions>) {
     let config = WebSocketConfig::default()
-        .max_message_size(Some(64 * 1024))
-        .max_frame_size(Some(64 * 1024));
+        .max_message_size(Some(256 * 1024))
+        .max_frame_size(Some(256 * 1024));
     let connection = timeout(
         Duration::from_secs(5),
         connect_async_with_config(request, Some(config), false),
@@ -70,11 +74,26 @@ pub async fn run(request: Request) {
     };
     info!("Registered with the game session service.");
     while let Some(Ok(message)) = socket.next().await {
-        if matches!(message, Message::Close(_)) {
-            let _ = socket.close(None).await;
-            break;
+        match message {
+            Message::Text(request) => {
+                let Some(response) = game_signaling::respond(sessions.clone(), &request).await
+                else {
+                    warn!("Invalid game signaling request.");
+                    break;
+                };
+                if socket.send(Message::Text(response.into())).await.is_err() {
+                    break;
+                }
+            }
+            Message::Close(_) => {
+                let _ = socket.flush().await;
+                break;
+            }
+            _ => {}
         }
     }
+    // An independent direct desktop session can still use the agent.
+    let _ = tokio::task::spawn_blocking(move || sessions.stop_relayed()).await;
     info!("Game session service connection closed.");
 }
 

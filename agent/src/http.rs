@@ -50,9 +50,16 @@ async fn offer(
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, message).into_response();
     }
 
-    let offer = String::from_utf8_lossy(&body).into_owned();
+    start_stream(sessions, String::from_utf8_lossy(&body).into_owned(), None).await
+}
+
+pub(crate) async fn start_stream(
+    sessions: Arc<ViewerSessions>,
+    offer: String,
+    turn_url: Option<String>,
+) -> Response {
     // Session setup blocks on GStreamer for up to a few seconds; keep it off the async workers.
-    let started = tokio::task::spawn_blocking(move || sessions.start(&offer))
+    let started = tokio::task::spawn_blocking(move || sessions.start(&offer, turn_url.as_deref()))
         .await
         .unwrap_or_else(|panic| Err(StartError::Failed(panic.to_string())));
     match started {
@@ -76,14 +83,20 @@ async fn offer(
 
 // The source resolution, current stream settings (resolution, frame rate, bitrate, encoder)
 // and the encoders this computer can use.
-async fn info(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> Response {
+pub(crate) async fn info(
+    State(sessions): State<Arc<ViewerSessions>>,
+    Path(id): Path<String>,
+) -> Response {
     match sessions.info(&id) {
         Some(info) => Json(info).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
-async fn stats(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> Response {
+pub(crate) async fn stats(
+    State(sessions): State<Arc<ViewerSessions>>,
+    Path(id): Path<String>,
+) -> Response {
     match sessions.stats(&id) {
         Some(stats) => Json(stats).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
@@ -91,7 +104,7 @@ async fn stats(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<Strin
 }
 
 // Changes stream settings while streaming. Omitted fields keep their current value.
-async fn update(
+pub(crate) async fn update(
     State(sessions): State<Arc<ViewerSessions>>,
     Path(id): Path<String>,
     update: Result<Json<StreamSettingsUpdate>, JsonRejection>,
@@ -121,7 +134,10 @@ async fn update(
     }
 }
 
-async fn stop(State(sessions): State<Arc<ViewerSessions>>, Path(id): Path<String>) -> StatusCode {
+pub(crate) async fn stop(
+    State(sessions): State<Arc<ViewerSessions>>,
+    Path(id): Path<String>,
+) -> StatusCode {
     // Stopping waits for the pipeline to shut down.
     let stopped = tokio::task::spawn_blocking(move || sessions.stop(&id)).await;
     if stopped.unwrap_or(false) {

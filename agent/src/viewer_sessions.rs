@@ -62,7 +62,11 @@ impl ViewerSessions {
     }
 
     /// Starts a session for the offer, replacing the current one. Returns its id and SDP answer.
-    pub fn start(self: &Arc<Self>, offer_sdp: &str) -> Result<(String, String), StartError> {
+    pub fn start(
+        self: &Arc<Self>,
+        offer_sdp: &str,
+        turn_url: Option<&str>,
+    ) -> Result<(String, String), StartError> {
         // Reject an unusable offer before it disconnects the current viewer.
         let codec = sdp::find_h264_codec(offer_sdp)?;
 
@@ -84,6 +88,7 @@ impl ViewerSessions {
             &self.encoders,
             &self.config,
             self.capture.as_ref(),
+            turn_url,
             on_ended,
         )?;
 
@@ -156,6 +161,15 @@ impl ViewerSessions {
             audio_unavailable_reason: session.audio_unavailable().map(str::to_owned),
             input_unavailable_reason: session.input_unavailable().map(str::to_owned),
             touch_supported: session.touch_supported(),
+        }
+    }
+
+    pub fn stop_relayed(&self) {
+        let mut current = lock(&self.current);
+        if current.as_ref().is_some_and(|session| session.is_relayed())
+            && let Some(session) = current.take()
+        {
+            session.stop();
         }
     }
 

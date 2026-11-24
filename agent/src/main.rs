@@ -2,6 +2,7 @@ mod config;
 mod encode_timing;
 mod encoders;
 mod game_registration;
+mod game_signaling;
 mod http;
 mod input;
 mod named_audio;
@@ -65,7 +66,7 @@ async fn main() {
     };
 
     if let Some(request) = registration {
-        tokio::spawn(game_registration::run(request));
+        tokio::spawn(game_registration::run(request, sessions.clone()));
     }
 
     let shutdown = async {

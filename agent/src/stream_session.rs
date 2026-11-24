@@ -13,7 +13,8 @@ use gstreamer::glib;
 use gstreamer::prelude::*;
 use gstreamer_sdp as gst_sdp;
 use gstreamer_webrtc::{
-    WebRTCICEGatheringState, WebRTCPeerConnectionState, WebRTCSDPType, WebRTCSessionDescription,
+    WebRTCICEGatheringState, WebRTCICETransportPolicy, WebRTCPeerConnectionState, WebRTCSDPType,
+    WebRTCSessionDescription,
 };
 use tracing::{debug, error, info, warn};
 
@@ -135,6 +136,7 @@ pub struct StreamSession {
     id: String,
     pipeline: gst::Pipeline,
     webrtc: gst::Element,
+    relayed: bool,
     capture_src: gst::Pad,
     output_src: gst::Pad,
     parse_sink: gst::Pad,
@@ -169,6 +171,7 @@ impl StreamSession {
         inventory: &EncoderInventory,
         config: &StreamConfig,
         capture_config: Option<&CaptureConfig>,
+        turn_url: Option<&str>,
         on_ended: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(Arc<Self>, String), StartError> {
         let named_capture = capture_config.is_some();
@@ -211,6 +214,12 @@ impl StreamSession {
             .downcast::<gst::Pipeline>()
             .map_err(|_| failed("The pipeline description is not a pipeline."))?;
         let webrtc = by_name(&pipeline, "webrtc")?;
+        if let Some(turn_url) = turn_url {
+            webrtc.set_property("ice-transport-policy", WebRTCICETransportPolicy::Relay);
+            if !webrtc.emit_by_name::<bool>("add-turn-server", &[&turn_url]) {
+                return Err(failed("Could not configure the TURN relay."));
+            }
+        }
         let output_src = static_pad(&by_name(&pipeline, "output")?, "src")?;
         let parse_sink = static_pad(&by_name(&pipeline, "parse")?, "sink")?;
 
@@ -253,6 +262,7 @@ impl StreamSession {
             encode_timing,
             pipeline,
             webrtc,
+            relayed: turn_url.is_some(),
             settings: Mutex::new(StreamSettings {
                 width: 0,
                 height: 0,
@@ -519,7 +529,19 @@ impl StreamSession {
             .webrtc
             .property::<Option<WebRTCSessionDescription>>("local-description")
             .ok_or_else(|| failed("webrtcbin has no local description."))?;
-        local.sdp().as_text().map_err(failed)
+        let answer = local.sdp().as_text().map_err(failed)?;
+        if self.relayed
+            && !answer
+                .lines()
+                .any(|line| line.starts_with("a=candidate:") && line.contains(" typ relay"))
+        {
+            return Err(failed("The TURN server did not provide a relay candidate."));
+        }
+        Ok(answer)
+    }
+
+    pub fn is_relayed(&self) -> bool {
+        self.relayed
     }
 
     fn start_named_audio(&self) {

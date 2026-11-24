@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8.9"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 gstreamer = "0.25"
 gstreamer-sdp = "0.25"
 gstreamer-webrtc = { version = "0.25", features = ["v1_18"] }
