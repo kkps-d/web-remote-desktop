@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {
   connectToAgent,
-  localAgentFromSearch,
+  launchAgentFromSearch,
   parseAgentAddress,
   scaleToHeight,
 } from "../src/lib/agent-connection.ts"
@@ -22,9 +22,10 @@ test("parses addresses, adding the agent's port only when none was typed", () =>
   }
 })
 
-test("only local agent addresses can opt into an automatic connection", () => {
-  assert.equal(localAgentFromSearch("?localAgent=127.0.0.1%3A8100"), "127.0.0.1:8100")
-  assert.equal(localAgentFromSearch("?localAgent=localhost%3A8100"), "localhost:8100")
+test("localAgent only accepts loopback addresses for automatic connections", () => {
+  const viewerHost = "192.168.1.20"
+  assert.equal(launchAgentFromSearch("?localAgent=127.0.0.1%3A8100", viewerHost), "127.0.0.1:8100")
+  assert.equal(launchAgentFromSearch("?localAgent=localhost%3A8100", viewerHost), "localhost:8100")
   for (const address of [
     "example.org:8100",
     "127.0.0.1",
@@ -33,11 +34,22 @@ test("only local agent addresses can opt into an automatic connection", () => {
     "localhost:8100/path",
   ]) {
     assert.equal(
-      localAgentFromSearch(new URLSearchParams({ localAgent: address }).toString()),
+      launchAgentFromSearch(new URLSearchParams({ localAgent: address }).toString(), viewerHost),
       undefined,
     )
   }
-  assert.equal(localAgentFromSearch(""), undefined)
+  assert.equal(launchAgentFromSearch("", viewerHost), undefined)
+})
+
+test("agentPort opens the agent on the viewer's host", () => {
+  const viewerHost = "192.168.1.20"
+  assert.equal(launchAgentFromSearch("?agentPort=8100", viewerHost), "192.168.1.20:8100")
+  for (const agentPort of ["0", "65536", "8e3", "8100/path", "other-host:8100"]) {
+    assert.equal(
+      launchAgentFromSearch(new URLSearchParams({ agentPort }).toString(), viewerHost),
+      undefined,
+    )
+  }
 })
 
 test("scales to a height with an even width", () => {

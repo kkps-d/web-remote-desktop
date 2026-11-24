@@ -67,12 +67,16 @@ export interface StreamLimits {
   bitrateKbps: number
 }
 
-/** Reads the opt-in launch address for an agent on this computer. */
-export function localAgentFromSearch(search: string): string | undefined {
-  const address = new URLSearchParams(search).get("localAgent")
-  if (!address) return
-  const port = /^(?:127\.0\.0\.1|localhost):([1-9]\d{0,4})$/.exec(address)?.[1]
-  if (port && Number(port) <= 65535) return address
+/** Launch links can target loopback or the host that served the viewer. */
+export function launchAgentFromSearch(search: string, hostname: string): string | undefined {
+  const params = new URLSearchParams(search)
+  const local = /^(?:127\.0\.0\.1|localhost):([1-9]\d{0,4})$/.exec(params.get("localAgent") ?? "")
+  if (local && Number(local[1]) <= 65535) return local[0]
+
+  const port = params.get("agentPort")
+  if (hostname && port && /^[1-9]\d{0,4}$/.test(port) && Number(port) <= 65535) {
+    return `${hostname}:${port}`
+  }
 }
 
 /** Turns user input like "192.168.1.20" or "pc.local:9000" into the agent's base URL. */

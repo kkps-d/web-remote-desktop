@@ -71,10 +71,14 @@ async fn main() {
     };
     if let Some(direct) = &config.direct {
         let port = direct.port;
-        let bind = if direct.loopback_only {
-            TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await
+        let address = if direct.loopback_only {
+            Some(Ipv4Addr::LOCALHOST)
         } else {
-            http::listen_any_ip(port)
+            direct.bind_address
+        };
+        let bind = match address {
+            Some(address) => TcpListener::bind((address, port)).await,
+            None => http::listen_any_ip(port),
         };
         let listener = match bind {
             Ok(listener) => listener,

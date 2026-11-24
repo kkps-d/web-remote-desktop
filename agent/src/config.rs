@@ -2,6 +2,7 @@
 //! the agent accepts, and the stream's defaults and limits. See `agent.example.toml`.
 
 use std::io;
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -41,6 +42,7 @@ impl Default for Config {
 pub struct DirectConfig {
     pub port: u16,
     pub loopback_only: bool,
+    pub bind_address: Option<Ipv4Addr>,
 }
 
 impl Default for DirectConfig {
@@ -48,6 +50,7 @@ impl Default for DirectConfig {
         Self {
             port: DEFAULT_PORT,
             loopback_only: false,
+            bind_address: None,
         }
     }
 }
@@ -256,6 +259,7 @@ mod tests {
             [direct]
             port = 9000
             loopback_only = true
+            bind_address = "192.168.1.20"
 
             [orchprox]
             url = "wss://orchprox.example.com"
@@ -275,7 +279,8 @@ mod tests {
             Config {
                 direct: Some(DirectConfig {
                     port: 9000,
-                    loopback_only: true
+                    loopback_only: true,
+                    bind_address: Some(Ipv4Addr::new(192, 168, 1, 20)),
                 }),
                 orchprox: Some(OrchproxConfig {
                     url: "wss://orchprox.example.com".into()

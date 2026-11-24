@@ -3,11 +3,13 @@ import { useEffect, useState } from "react"
 import { ConnectScreen } from "@/components/connect-screen"
 import { ViewerScreen } from "@/components/viewer-screen"
 import { useAgentViewer } from "@/hooks/use-agent-viewer"
-import { localAgentFromSearch } from "@/lib/agent-connection"
+import { launchAgentFromSearch } from "@/lib/agent-connection"
 
 export default function App() {
   const { state, connect, disconnect } = useAgentViewer()
-  const [launch] = useState(() => localAgentFromSearch(window.location.search))
+  const [launch] = useState(() =>
+    launchAgentFromSearch(window.location.search, window.location.hostname),
+  )
   const [useAgentDefaults, setUseAgentDefaults] = useState(Boolean(launch))
 
   useEffect(() => {

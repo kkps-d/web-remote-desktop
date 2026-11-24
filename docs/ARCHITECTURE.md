@@ -77,7 +77,8 @@ How the app works today. Planned work is in the [roadmap](ROADMAP.md); measureme
 - `[direct]` (port) and `[orchprox]` (url) turn each connection mode on; at least one is required. No file means direct on 8080. `--port` overrides the port and turns direct on.
 - `[stream]` sets a maximum resolution (a bounding box; the stream starts scaled down to fit), default and maximum frame rate, and default and maximum bitrate.
 - Set `loopback_only = true` in `[direct]` to bind signaling to `127.0.0.1`.
-- A viewer URL with `?localAgent=127.0.0.1:PORT` connects automatically using the agent’s stream defaults. The manual Connect screen uses the browser’s saved stream preferences.
+- Set `bind_address` in `[direct]` to bind signaling to a specific IPv4 address. `loopback_only` takes precedence.
+- A viewer URL with `?agentPort=PORT` connects to the viewer's host on that port. `?localAgent=127.0.0.1:PORT` connects to loopback. Both use the agent’s stream defaults. The manual Connect screen uses the browser’s saved stream preferences.
 - The orchprox url is only checked for now.
 
 ### Windows pipeline

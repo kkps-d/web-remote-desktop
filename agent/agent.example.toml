@@ -5,6 +5,7 @@
 [direct]
 port = 8080 # --port overrides this, and turns direct connections on
 # loopback_only = true # Only accept signaling at 127.0.0.1
+# bind_address = "192.168.1.20" # Bind signaling to one IPv4 address unless loopback_only is set
 
 # The agent connects out to an orchprox. Leave out to turn off.
 # Not implemented yet: the agent only checks the url.
